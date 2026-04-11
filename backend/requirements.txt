@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+supabase
+stripe
+httpx
+pandas
+openpyxl
+python-dotenv
+python-multipart
