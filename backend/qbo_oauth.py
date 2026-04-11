@@ -1,8 +1,11 @@
 import os
 import httpx
 import base64
+import urllib.parse
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, JSONResponse
+from supabase import create_client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,33 +18,42 @@ QBO_REDIRECT_URI  = os.getenv("QBO_REDIRECT_URI")
 QBO_SCOPES        = "com.intuit.quickbooks.accounting"
 QBO_AUTH_URL      = "https://appcenter.intuit.com/connect/oauth2"
 QBO_TOKEN_URL     = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+QBO_API_BASE      = "https://quickbooks.api.intuit.com"
+
+SUPABASE_URL      = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+
+def get_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 @router.get("/auth-url")
-def get_auth_url():
+def get_auth_url(user_id: str):
     """Return the QBO OAuth authorization URL."""
-    import urllib.parse
     params = {
         "client_id":     QBO_CLIENT_ID,
         "response_type": "code",
         "scope":         QBO_SCOPES,
         "redirect_uri":  QBO_REDIRECT_URI,
-        "state":         "acornlite",
+        "state":         user_id,  # pass user_id through state param
     }
     url = QBO_AUTH_URL + "?" + urllib.parse.urlencode(params)
     return {"auth_url": url}
 
 
 @router.get("/callback")
-async def qbo_callback(request: Request, code: str, realmId: str, state: str = ""):
-    """Handle QBO OAuth callback — exchange code for tokens."""
+async def qbo_callback(code: str, realmId: str, state: str = ""):
+    """Handle QBO OAuth callback — exchange code for tokens and store in Supabase."""
+    user_id = state  # we passed user_id as state
+
     # Exchange authorization code for tokens
     credentials = base64.b64encode(
         f"{QBO_CLIENT_ID}:{QBO_CLIENT_SECRET}".encode()
     ).decode()
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(
+        token_response = await client.post(
             QBO_TOKEN_URL,
             headers={
                 "Authorization": f"Basic {credentials}",
@@ -55,24 +67,60 @@ async def qbo_callback(request: Request, code: str, realmId: str, state: str = "
             },
         )
 
-    if response.status_code != 200:
+    if token_response.status_code != 200:
         return JSONResponse(
-            {"error": "Token exchange failed", "detail": response.text},
+            {"error": "Token exchange failed", "detail": token_response.text},
             status_code=400,
         )
 
-    tokens = response.json()
-    # For now just return tokens — will store in Supabase in next step
-    return {
+    tokens = token_response.json()
+    access_token  = tokens.get("access_token")
+    refresh_token = tokens.get("refresh_token")
+    expires_in    = tokens.get("expires_in", 3600)
+    expires_at    = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+
+    # Fetch company name from QBO
+    company_name = realmId  # fallback
+    try:
+        async with httpx.AsyncClient() as client:
+            info_response = await client.get(
+                f"{QBO_API_BASE}/v3/company/{realmId}/companyinfo/{realmId}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/json",
+                },
+                params={"minorversion": "75"},
+            )
+        if info_response.status_code == 200:
+            company_name = (
+                info_response.json()
+                .get("CompanyInfo", {})
+                .get("CompanyName", realmId)
+            )
+    except Exception:
+        pass
+
+    # Store tokens in Supabase
+    supabase = get_supabase()
+    supabase.table("qbo_tokens").upsert({
+        "user_id":       user_id,
         "realm_id":      realmId,
-        "access_token":  tokens.get("access_token"),
-        "refresh_token": tokens.get("refresh_token"),
-        "expires_in":    tokens.get("expires_in"),
-    }
+        "company_name":  company_name,
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "expires_at":    expires_at,
+        "updated_at":    datetime.utcnow().isoformat(),
+    }, on_conflict="user_id,realm_id").execute()
+
+    # Redirect back to app with success
+    return RedirectResponse(url="/app.html?connected=true")
 
 
 @router.get("/companies")
-def list_companies():
-    """List connected QBO companies for the current user."""
-    # Placeholder — will read from Supabase in next step
-    return {"companies": []}
+def list_companies(user_id: str):
+    """List connected QBO companies for a user."""
+    supabase = get_supabase()
+    result = supabase.table("qbo_tokens").select(
+        "realm_id, company_name, updated_at"
+    ).eq("user_id", user_id).execute()
+    return {"companies": result.data}
