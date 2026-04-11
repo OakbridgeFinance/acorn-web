@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from backend.qbo_oauth import router as qbo_router
 
 app = FastAPI(title="Acorn Lite API")
 
@@ -10,6 +11,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(qbo_router)
 
 @app.get("/health")
 def health():
