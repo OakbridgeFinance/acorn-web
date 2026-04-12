@@ -17,13 +17,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from backend.auth import router as auth_router
-from backend.qbo_oauth import router as qbo_router
-from backend.reports import router as reports_router
+import traceback
 
-app.include_router(auth_router)
-app.include_router(qbo_router)
-app.include_router(reports_router)
+try:
+    from backend.auth import router as auth_router
+    app.include_router(auth_router)
+    logger.info("Auth router loaded")
+except Exception as e:
+    logger.error(f"Failed to load auth router: {e}")
+    logger.error(traceback.format_exc())
+
+try:
+    from backend.qbo_oauth import router as qbo_router
+    app.include_router(qbo_router)
+    logger.info("QBO router loaded")
+except Exception as e:
+    logger.error(f"Failed to load qbo router: {e}")
+    logger.error(traceback.format_exc())
+
+try:
+    from backend.reports import router as reports_router
+    app.include_router(reports_router)
+    logger.info("Reports router loaded")
+except Exception as e:
+    logger.error(f"Failed to load reports router: {e}")
+    logger.error(traceback.format_exc())
 
 FRONTEND = Path(__file__).parent.parent / "frontend"
 logger.info(f"Frontend path: {FRONTEND}")
