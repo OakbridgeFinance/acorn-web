@@ -393,10 +393,32 @@ function renderClientList() {
   }
   list.innerHTML = state.companies.map(c => `
     <li class="client-item${c.realm_id === state.realmId ? ' active' : ''}"
+        style="display:flex;align-items:center;justify-content:space-between;"
         onclick="selectClient('${escHtml(c.realm_id)}', '${escHtml(c.company_name)}')">
       <span class="client-name">${escHtml(c.company_name)}</span>
+      <button style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;padding:2px 4px;flex-shrink:0;"
+              onclick="event.stopPropagation(); removeConnection('${escHtml(c.realm_id)}')"
+              title="Remove connection">\u2715</button>
     </li>
   `).join('');
+}
+
+async function removeConnection(realmId) {
+  if (!confirm('Remove this QuickBooks connection? You can reconnect at any time.')) return;
+  try {
+    const res = await fetch(API + '/api/qbo/companies/' + realmId, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (res.ok) {
+      if (state.realmId === realmId) { state.realmId = null; goBack(); }
+      await loadCompanies();
+    } else {
+      alert('Failed to remove connection.');
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 function selectClient(realmId, companyName) {

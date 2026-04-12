@@ -9,8 +9,9 @@ import httpx
 import base64
 import urllib.parse
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
+from backend.auth import get_current_user
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -130,3 +131,13 @@ def list_companies(user_id: str):
         "realm_id, company_name, updated_at"
     ).eq("user_id", user_id).execute()
     return {"companies": result.data}
+
+
+@router.delete("/companies/{realm_id}")
+def remove_company(realm_id: str, user=Depends(get_current_user)):
+    """Remove a QBO connection."""
+    supabase = get_supabase()
+    supabase.table("qbo_tokens").delete().eq(
+        "user_id", str(user.id)
+    ).eq("realm_id", realm_id).execute()
+    return {"removed": True}
