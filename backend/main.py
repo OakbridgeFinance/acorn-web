@@ -25,6 +25,10 @@ logger.info(f"Frontend exists: {FRONTEND.exists()}")
 def health():
     return {"status": "ok", "service": "acorn"}
 
+@app.get("/test")
+def test():
+    return {"test": "working", "frontend_exists": str(FRONTEND.exists())}
+
 @app.get("/")
 def root():
     logger.info("Root route hit")
