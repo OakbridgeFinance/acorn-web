@@ -36,7 +36,7 @@
 html, body {
   height: 100%;
   font-family: var(--font);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -199,7 +199,7 @@ html, body {
 
 /* ── Pages ────────────────────────────────────────────────────────────────── */
 .page { display: none; }
-.page.active { display: block; }
+.page.active { display: block; max-width: 720px; }
 
 /* ── Page header ─────────────────────────────────────────────────────────── */
 .page-header {
@@ -258,6 +258,7 @@ html, body {
   box-shadow: var(--shadow);
   margin-bottom: 16px;
   overflow: hidden;
+  max-width: 640px;
 }
 
 .card-header {
@@ -1658,6 +1659,7 @@ details[open] .tab-details-summary::before { content: '▼ '; }
   border-radius: 10px;
   padding: 20px;
   margin-bottom: 16px;
+  max-width: 640px;
 }
 .output-label {
   font-size: 11px;
