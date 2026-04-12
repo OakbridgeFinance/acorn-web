@@ -152,9 +152,17 @@
         </div>
       </div>
 
-      <!-- Output section -->
+      <!-- Account Mapping selection -->
+      <div class="card" id="mappingSelectionCard">
+        <div class="card-header">Account Mapping</div>
+        <div class="card-body" id="mappingSelectionBody">
+          <div style="color:var(--text-light);font-size:13px">Select a client to load mappings.</div>
+        </div>
+      </div>
+
+      <!-- Reporting Dimension -->
       <div class="output-section">
-        <div class="output-label">OUTPUT</div>
+        <div class="output-label">REPORTING DIMENSION</div>
 
         <div class="field-row" id="liteGlDimRow">
           <label class="field-label">IS GL Dimension</label>
@@ -437,6 +445,9 @@ function selectClient(realmId, companyName) {
   // Default to Prior Month
   if ($('litePeriod')) $('litePeriod').value = 'Prior Month';
   onPeriodChange();
+
+  // Load mapping selection for this client
+  loadMappingSelection(realmId);
 }
 
 function goBack() {
@@ -526,6 +537,39 @@ function onPeriodChange() {
   }
 }
 
+// ── Mapping selection ────────────────────────────────────────────────────────
+async function loadMappingSelection(realmId) {
+  const body = $('mappingSelectionBody');
+  if (!body) return;
+  try {
+    const res = await fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() });
+    const data = await res.json();
+    const maps = data.account_maps || [];
+    if (!maps.length) {
+      body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">' +
+        'No mappings configured. ' +
+        '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Set up Account Mapping \u2192</a>' +
+        '</div>';
+      return;
+    }
+    body.innerHTML = maps.map((m, i) =>
+      '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px">' +
+      '<input type="checkbox" id="mapCheck_' + i + '" value="' + escHtml(m.map_name) + '" checked ' +
+      'style="width:14px;height:14px;accent-color:var(--accent)">' +
+      escHtml(m.map_name) +
+      '</label>'
+    ).join('');
+  } catch (e) {
+    body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Could not load mappings.</div>';
+  }
+}
+
+function getSelectedMaps() {
+  return Array.from(
+    document.querySelectorAll('#mappingSelectionBody input[type=checkbox]:checked')
+  ).map(cb => cb.value);
+}
+
 // ── Generate ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!state.realmId) return;
@@ -552,10 +596,11 @@ async function generate() {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({
-        realm_id:   state.realmId,
-        start_date: startDate,
-        end_date:   endDate,
-        dimension:  $('liteGlDimension')?.value || 'none',
+        realm_id:      state.realmId,
+        start_date:    startDate,
+        end_date:      endDate,
+        dimension:     $('liteGlDimension')?.value || 'none',
+        selected_maps: getSelectedMaps(),
       }),
     });
     const data = await res.json();
