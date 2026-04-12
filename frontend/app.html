@@ -418,9 +418,11 @@ function pollJob(jobId) {
       });
       const job = await res.json();
 
-      if (job.status === 'running') {
-        setProgress(50);
-        appendLog('Processing...');
+      if (job.status === 'running' || job.status === 'pending') {
+        setProgress(job.status === 'running' ? 50 : 10);
+        if (job.progress) {
+          appendLog(job.progress);
+        }
       } else if (job.status === 'complete') {
         clearInterval(state.pollTimer);
         state.pollTimer = null;

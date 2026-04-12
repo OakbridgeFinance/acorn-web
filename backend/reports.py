@@ -72,6 +72,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
         file_name = f"{clean_name}_{start_date[:7]}_{end_date[:7]}.xlsx"
 
+        # Create a progress function that updates the job in Supabase
+        def progress_fn(msg):
+            msg = str(msg).strip()
+            if msg and not msg.startswith('[progress]'):
+                update_job(job_id, progress=msg)
+
         # Generate report to a temp file
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_lite(
@@ -82,6 +88,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 output_folder=tmpdir,
                 file_name=file_name,
                 dimension=dimension,
+                progress_fn=progress_fn,
             )
 
             # Upload to Supabase storage
