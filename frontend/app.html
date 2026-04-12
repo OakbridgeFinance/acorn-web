@@ -435,6 +435,9 @@ function selectClient(realmId, companyName) {
   state.realmId = realmId;
   renderClientList();
 
+  // Always navigate to extraction page when switching clients
+  showReportPage();
+
   const sub = $('liteClientSub');
   if (sub) sub.textContent = companyName + '  \u00b7  QBO';
 
@@ -902,34 +905,48 @@ function mapsCloseEditor() {
 }
 
 function _mapsInitResize() {
-  function makeResizable(handleId, leftPanelId) {
-    const handle = document.getElementById(handleId);
-    const leftPanel = document.getElementById(leftPanelId);
-    if (!handle || !leftPanel) return;
-
+  function makeResizable(handle, panel, side) {
+    if (!handle || !panel) return;
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
       const startX = e.clientX;
-      const startW = leftPanel.getBoundingClientRect().width;
+      const startWidth = panel.getBoundingClientRect().width;
       handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
 
-      function onMove(ev) {
-        const w = startW + (ev.clientX - startX);
-        leftPanel.style.width = Math.max(150, w) + 'px';
-        leftPanel.style.flex = 'none';
+      function onMouseMove(ev) {
+        const dx = ev.clientX - startX;
+        const newWidth = side === 'left'
+          ? Math.max(160, Math.min(500, startWidth + dx))
+          : Math.max(160, Math.min(500, startWidth - dx));
+        panel.style.width = newWidth + 'px';
+        panel.style.flex = 'none';
       }
-      function onUp() {
+      function onMouseUp() {
         handle.classList.remove('active');
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
       }
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
     });
   }
 
-  makeResizable('mapsResizeHandle1', 'mapsPanelAccounts');
-  makeResizable('mapsResizeHandle2', 'mapsPanelGroups');
+  // Handle 1: resize accounts panel (left panel, drag right = wider)
+  makeResizable(
+    document.getElementById('mapsResizeHandle1'),
+    document.getElementById('mapsPanelAccounts'),
+    'left'
+  );
+  // Handle 2: resize settings panel (right panel, drag left = wider)
+  makeResizable(
+    document.getElementById('mapsResizeHandle2'),
+    document.getElementById('mapsPanelSettings'),
+    'right'
+  );
 }
 
 function _mapsAssignedSet() {
