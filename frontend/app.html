@@ -37,6 +37,9 @@
     <div class="sidebar-refresh">
       <button class="refresh-btn" onclick="loadCompanies()" title="Refresh connections">&#8635; Refresh Connections</button>
     </div>
+    <div class="sidebar-refresh" style="border-top:1px solid rgba(255,255,255,0.07); padding-top:10px;">
+      <button class="refresh-btn" onclick="showMappingPage()" title="Account Mapping">Account Mapping</button>
+    </div>
     <div class="sidebar-signout">
       <button class="signout-btn" onclick="signOut()">Sign Out</button>
     </div>
@@ -188,6 +191,101 @@
       </div><!-- /#liteReportForm -->
 
     </div>
+
+    <!-- Account Maps page -->
+    <div class="page hidden" id="pageAccountMaps">
+      <div class="page-header">
+        <div class="page-header-left">
+          <button class="back-btn" onclick="showReportPage()">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/>
+            </svg>
+            <span id="mapsBackLabel">Back</span>
+          </button>
+          <h1 class="page-title">Account Maps</h1>
+          <p class="page-sub" id="mapsClientSub"></p>
+        </div>
+        <div class="page-header-right" style="display:flex;align-items:center;gap:10px;">
+          <button class="btn-outline" id="mapsNewBtn" onclick="mapsNew()">+ New Map</button>
+        </div>
+      </div>
+
+      <div id="mapsListView">
+        <div class="bk-loading hidden" id="mapsLoading">
+          <div class="bk-loading-spinner"></div>
+          <div class="bk-loading-text">Loading maps...</div>
+        </div>
+        <div id="mapsListCards"></div>
+        <div class="bk-empty hidden" id="mapsEmpty">
+          <div class="bk-empty-icon">&#128450;</div>
+          <div class="bk-empty-title">No account maps yet</div>
+          <div class="bk-empty-sub">Click "+ New Map" to create your first account mapping.</div>
+        </div>
+      </div>
+
+      <div class="maps-editor hidden" id="mapsEditor">
+        <div class="maps-editor-toolbar">
+          <button class="btn-outline btn-sm" onclick="mapsCloseEditor()">Cancel</button>
+          <div class="maps-editor-name">
+            <label class="field-label" style="margin-right:6px;">Map name:</label>
+            <input type="text" class="input" id="mapsEditorName" placeholder="e.g. Portal" style="width:180px" />
+          </div>
+          <div class="maps-editor-validation" id="mapsValidation"></div>
+          <button class="btn-primary btn-sm" id="mapsSaveBtn" onclick="mapsSaveEditor()">Save Map</button>
+        </div>
+
+        <div class="maps-stmt-toggle">
+          <span class="field-label" style="margin-right:8px;">Statement:</span>
+          <button class="maps-stmt-btn active" data-stmt="IS" onclick="mapsSetStatement('IS')">Income Statement</button>
+          <button class="maps-stmt-btn" data-stmt="BS" onclick="mapsSetStatement('BS')">Balance Sheet</button>
+        </div>
+
+        <div class="maps-date-filter">
+          <label class="field-label" style="margin-right:6px;">Show accounts active from</label>
+          <input type="date" class="input" id="mapsFilterStart" style="width:130px" onchange="mapsApplyFilter()" />
+          <span style="color:var(--text-light);margin:0 4px;">to</span>
+          <input type="date" class="input" id="mapsFilterEnd" style="width:130px" onchange="mapsApplyFilter()" />
+          <button class="btn-outline btn-sm" style="margin-left:8px;" onclick="mapsApplyFilter()">Apply</button>
+          <span class="maps-filter-count" id="mapsFilterCount"></span>
+        </div>
+
+        <div class="maps-layout">
+          <div class="maps-panel maps-panel--accounts">
+            <div class="maps-panel-header" style="flex-wrap:wrap;">
+              <span class="maps-panel-title">QBO Accounts</span>
+              <div style="display:flex; gap:6px; width:100%; margin-top:6px;">
+                <select class="input maps-filter-select" id="mapsAccountFilter" onchange="mapsRenderAccounts()">
+                  <option value="all">All</option>
+                  <option value="unmapped">Unmapped</option>
+                  <option value="mapped">Mapped</option>
+                </select>
+                <input type="text" class="input maps-search" id="mapsAccountSearch"
+                       placeholder="Search accounts..." oninput="mapsRenderAccounts()" style="margin-top:0;" />
+              </div>
+            </div>
+            <div class="maps-account-list" id="mapsAccountList"></div>
+          </div>
+
+          <div class="maps-resize-handle"></div>
+
+          <div class="maps-panel maps-panel--groups">
+            <div class="maps-panel-header">
+              <span class="maps-panel-title">Groups</span>
+              <button class="btn-outline btn-sm" onclick="mapsAddGroup()">+ Add Group</button>
+            </div>
+            <div class="maps-group-list" id="mapsGroupList"></div>
+          </div>
+
+          <div class="maps-panel maps-panel--settings">
+            <div class="maps-panel-header">
+              <span class="maps-panel-title">Summary</span>
+            </div>
+            <div class="maps-summary" id="mapsSummary"></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /pageAccountMaps -->
+
   </div>
 </div>
 
@@ -586,6 +684,515 @@ function showStatus(msg, type) {
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
+// ── Account Maps ────────────────────────────────────────────────────────────
+const _IS_SECTIONS = ['Revenue', 'COS', 'Sales & Marketing', 'Operating Expenses', 'Other Income', 'Other Expense'];
+const _BS_SECTIONS = ['Current Assets', 'Fixed Assets', 'Other Assets', 'Current Liabilities', 'Long-Term Liabilities', 'Equity'];
+const _IS_ACCOUNT_TYPES = new Set(['Income', 'Cost of Goods Sold', 'Expense', 'Other Income', 'Other Expense']);
+const _BS_ACCOUNT_TYPES = new Set(['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset',
+  'Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability', 'Equity']);
+
+let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, activityTotals: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
+
+function _getRealmId() { return state.realmId; }
+
+function showMappingPage() {
+  if (!state.realmId) { alert('Select a client first.'); return; }
+  $('pageLite').classList.remove('active'); $('pageLite').classList.add('hidden');
+  $('pageAccountMaps').classList.add('active'); $('pageAccountMaps').classList.remove('hidden');
+  const c = state.companies.find(c => c.realm_id === state.realmId);
+  if ($('mapsBackLabel') && c) $('mapsBackLabel').textContent = c.company_name;
+  if ($('mapsClientSub') && c) $('mapsClientSub').textContent = c.company_name + '  \u00b7  Account Maps';
+  mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, activityTotals: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
+  mapsLoadList();
+}
+
+function showReportPage() {
+  $('pageAccountMaps').classList.remove('active'); $('pageAccountMaps').classList.add('hidden');
+  $('pageLite').classList.add('active'); $('pageLite').classList.remove('hidden');
+}
+
+async function mapsLoadList() {
+  show('mapsLoading'); hide('mapsListCards'); hide('mapsEmpty'); hide('mapsEditor');
+  show('mapsListView');
+  const realmId = _getRealmId();
+  try {
+    const [mapsResp, acctResp] = await Promise.all([
+      fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() }).then(r => r.json()),
+      fetch(API + '/api/mapping/coa/' + realmId, { headers: authHeaders() }).then(r => r.json()),
+    ]);
+    mapsState.maps = Array.isArray(mapsResp.account_maps) ? mapsResp.account_maps : [];
+    mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
+  } catch (e) {
+    console.error('Maps load error:', e);
+    mapsState.maps = [];
+  }
+  hide('mapsLoading');
+  mapsRenderList();
+}
+
+function mapsRenderList() {
+  const container = $('mapsListCards');
+  const maps = mapsState.maps;
+  if (!maps.length) { show('mapsEmpty'); hide('mapsListCards'); return; }
+  hide('mapsEmpty'); show('mapsListCards');
+  container.innerHTML = maps.map((m, idx) => {
+    const groupCount = (m.groups || []).length;
+    const acctCount = (m.groups || []).reduce((s, g) => s + (g.accounts || []).length, 0);
+    const name = escHtml(m.map_name || 'Unnamed');
+    return `
+      <div class="maps-list-card" onclick="mapsEdit(${idx})">
+        <div class="maps-list-info">
+          <div class="maps-list-name">${name}</div>
+          <div class="maps-list-meta">${groupCount} groups \u00b7 ${acctCount} accounts</div>
+        </div>
+        <div class="maps-list-actions">
+          <button class="btn-outline btn-sm" onclick="event.stopPropagation(); mapsDelete(${idx})">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function mapsNew() {
+  mapsState.editing = { map_name: '', groups: [], filter_start: '', filter_end: '' };
+  mapsState.originalMap = null;
+  mapsState.groups = [{ group_name: 'Unassigned', pl_section: '', accounts: [], _fixed: true }];
+  mapsOpenEditor();
+}
+
+function mapsEdit(idx) {
+  const m = mapsState.maps[idx];
+  if (!m) return;
+  mapsState.editing = JSON.parse(JSON.stringify(m));
+  mapsState.editing._idx = idx;
+  mapsState.originalMap = JSON.parse(JSON.stringify(m));
+  const _dnSet = new Set();
+  const _reverseLookup = {};
+  const _nameToDn = {};
+  for (const a of mapsState.allAccounts) {
+    const dn = a.acct_num && a.acct_num.trim() ? `${a.acct_num.trim()} ${a.name}` : a.name;
+    _dnSet.add(dn);
+    _reverseLookup[dn] = a.name;
+    _nameToDn[a.name] = dn;
+  }
+  const groups = (m.groups || []).map(g => ({
+    ...g,
+    accounts: (g.accounts || []).map(a => {
+      const raw = typeof a === 'string' ? a : (a.name || a.account_name || '');
+      if (_dnSet.has(raw)) return { name: _reverseLookup[raw] || raw, display_name: raw };
+      if (_nameToDn[raw]) return { name: raw, display_name: _nameToDn[raw] };
+      return { name: raw, display_name: raw };
+    }),
+  }));
+  if (!groups.find(g => g._fixed)) {
+    groups.push({ group_name: 'Unassigned', pl_section: '', accounts: [], _fixed: true });
+  }
+  mapsState.groups = groups;
+  mapsOpenEditor();
+}
+
+function mapsOpenEditor() {
+  hide('mapsListView'); show('mapsEditor');
+  const e = mapsState.editing;
+  if ($('mapsEditorName')) $('mapsEditorName').value = e.map_name || '';
+  const now = new Date();
+  const defaultStart = `${now.getFullYear() - 1}-01-01`;
+  const defaultEnd = now.toISOString().slice(0, 10);
+  if ($('mapsFilterStart')) $('mapsFilterStart').value = e.filter_start || defaultStart;
+  if ($('mapsFilterEnd')) $('mapsFilterEnd').value = e.filter_end || defaultEnd;
+  mapsState.filteredAccounts = null;
+  mapsState.activityTotals = null;
+  mapsState.indentLevels = null;
+  mapsState.statement = 'IS';
+  _mapsInitResize();
+  mapsRenderAll();
+  mapsApplyFilter();
+}
+
+function mapsCloseEditor() {
+  hide('mapsEditor'); show('mapsListView');
+  mapsState.editing = null;
+  mapsRenderList();
+}
+
+function _mapsInitResize() {
+  const handle = document.querySelector('.maps-resize-handle');
+  const panel = document.querySelector('.maps-panel--accounts');
+  if (!handle || !panel) return;
+  let startX = 0, startW = 0;
+  function onMove(e) {
+    const w = startW + (e.clientX - startX);
+    panel.style.width = Math.max(200, Math.min(600, w)) + 'px';
+    panel.style.minWidth = 'unset';
+    panel.style.flex = 'none';
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    handle.classList.remove('active');
+  }
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    startX = e.clientX;
+    startW = panel.getBoundingClientRect().width;
+    handle.classList.add('active');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+function _mapsAssignedSet() {
+  const s = new Set();
+  for (const g of mapsState.groups) {
+    for (const a of (g.accounts || [])) {
+      const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
+      s.add(dn);
+    }
+  }
+  return s;
+}
+
+function mapsRenderAll() {
+  mapsRenderAccounts();
+  mapsRenderGroups();
+  mapsRenderSummary();
+}
+
+function mapsSetStatement(stmt) {
+  mapsState.statement = stmt;
+  document.querySelectorAll('.maps-stmt-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.stmt === stmt);
+  });
+  mapsRenderAll();
+}
+
+function mapsRenderAccounts() {
+  const list = $('mapsAccountList');
+  if (!list) return;
+  const search = (val('mapsAccountSearch') || '').toLowerCase();
+  const assigned = _mapsAssignedSet();
+  const stmtFilter = mapsState.statement === 'BS' ? _BS_ACCOUNT_TYPES : _IS_ACCOUNT_TYPES;
+  let accts = mapsState.allAccounts
+    .filter(a => stmtFilter.has(a.type || '') || a.name === 'Net Income')
+    .sort((a, b) => {
+      const numA = parseInt((a.acct_num || '').replace(/\D/g, '') || '999999');
+      const numB = parseInt((b.acct_num || '').replace(/\D/g, '') || '999999');
+      return numA - numB;
+    });
+  if (search) {
+    accts = accts.filter(a =>
+      (a.name || '').toLowerCase().includes(search) ||
+      (a.acct_num || '').toLowerCase().includes(search)
+    );
+  }
+  const filterMode = val('mapsAccountFilter') || 'all';
+  if (filterMode === 'unmapped') {
+    accts = accts.filter(a => {
+      const dn = (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : a.name;
+      return !assigned.has(dn);
+    });
+  } else if (filterMode === 'mapped') {
+    accts = accts.filter(a => {
+      const dn = (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : a.name;
+      return assigned.has(dn);
+    });
+  }
+  const hasActivity = mapsState.activityTotals != null;
+  const hasIndents = mapsState.indentLevels != null;
+  accts.forEach((a, i) => {
+    const myIndent = hasIndents ? (mapsState.indentLevels[a.name] || 0) : 0;
+    const nextAcct = accts[i + 1];
+    const nextIndent = nextAcct && hasIndents ? (mapsState.indentLevels[nextAcct.name] || 0) : 0;
+    a._isParent = nextAcct && nextIndent > myIndent;
+  });
+  list.innerHTML = accts.map(a => {
+    const name = a.name || '';
+    const num = (a.acct_num || '').trim();
+    const displayName = num ? `${num} ${name}` : name;
+    const isAssigned = assigned.has(displayName);
+    const cls = isAssigned ? 'maps-account-item assigned' : 'maps-account-item';
+    const draggable = isAssigned ? '' : 'draggable="true"';
+    const bsKey = '__bs__' + name;
+    const indent = hasIndents
+      ? (mapsState.statement === 'BS' && mapsState.indentLevels[bsKey] != null
+         ? mapsState.indentLevels[bsKey]
+         : (mapsState.indentLevels[name] || 0))
+      : 0;
+    const indentPx = indent * 16;
+    const isParent = !!a._isParent;
+    const amt = hasActivity ? Math.abs(mapsState.activityTotals[name] || 0) : null;
+    const amtFmt = amt != null ? (amt >= 1 ? '$' + Math.round(amt).toLocaleString() : '\u2014') : '';
+    return `<div class="${cls}" ${draggable}
+                 ondragstart="mapsDragStart(event, '${escHtml(name)}', '${escHtml(displayName)}')"
+                 data-acct="${escHtml(name)}"
+                 style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
+      <span class="maps-acct-type">${escHtml(a.type || '')}</span>
+      <span class="maps-acct-name" style="font-weight:${isParent ? '600' : '400'};color:${isParent ? 'var(--text)' : 'var(--text-light)'};">${escHtml(displayName)}</span>
+      <span class="maps-acct-activity">${amtFmt}</span>
+    </div>`;
+  }).join('');
+  const fc = $('mapsFilterCount');
+  if (fc) {
+    const total = mapsState.allAccounts.length;
+    const shown = accts.length;
+    const mapped = assigned.size;
+    fc.textContent = `${shown} shown \u00b7 ${mapped} mapped of ${total}`;
+  }
+}
+
+function mapsRenderGroups() {
+  const list = $('mapsGroupList');
+  if (!list) return;
+  const curStmt = mapsState.statement;
+  const sections = curStmt === 'BS' ? _BS_SECTIONS : _IS_SECTIONS;
+  const sectionLabel = curStmt === 'BS' ? 'BS Section' : 'P&L Section';
+  const visibleGroups = mapsState.groups
+    .map((g, gi) => ({ g, gi }))
+    .filter(({ g }) => g._fixed || (g.statement || 'IS') === curStmt);
+  list.innerHTML = visibleGroups.map(({ g, gi }) => {
+    const isUnassigned = g._fixed;
+    const cardClass = isUnassigned ? 'maps-group maps-group--unassigned' : 'maps-group';
+    const nameInput = isUnassigned
+      ? `<span class="maps-group-name-input" style="font-style:italic;">Unassigned</span>`
+      : `<input class="maps-group-name-input" value="${escHtml(g.group_name || '')}"
+                placeholder="Group name" onchange="mapsRenameGroup(${gi}, this.value)" />`;
+    const sectionSel = isUnassigned ? '' : `
+      <select class="maps-group-section" onchange="mapsSetSection(${gi}, this.value)">
+        <option value="">\u2014 ${sectionLabel} \u2014</option>
+        ${sections.map(s => `<option value="${escHtml(s)}"${s === g.pl_section ? ' selected' : ''}>${escHtml(s)}</option>`).join('')}
+      </select>`;
+    const deleteBtn = isUnassigned ? '' :
+      `<button class="maps-group-delete" onclick="mapsRemoveGroup(${gi})" title="Delete group">\u2715</button>`;
+    const acctRows = (g.accounts || []).map((a, ai) => {
+      const aDisplay = typeof a === 'string' ? a : (a.display_name || a.name || a.account_name || '');
+      return `<div class="maps-group-acct">
+        <span class="maps-group-acct-name">${escHtml(aDisplay)}</span>
+        <button class="maps-group-acct-remove" onclick="mapsRemoveAcct(${gi}, ${ai})" title="Remove">\u2715</button>
+      </div>`;
+    }).join('');
+    return `
+      <div class="${cardClass}" data-gi="${gi}">
+        <div class="maps-group-header">
+          ${sectionSel}
+          ${nameInput}
+          ${deleteBtn}
+        </div>
+        <div class="maps-group-drop"
+             ondragover="mapsDragOver(event)"
+             ondragleave="mapsDragLeave(event)"
+             ondrop="mapsDrop(event, ${gi})">
+          ${acctRows}
+          <div class="maps-group-drop-hint">Drop accounts here</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function mapsRenderSummary() {
+  const el = $('mapsSummary');
+  if (!el) return;
+  const assigned = _mapsAssignedSet();
+  const allAccts = mapsState.filteredAccounts || mapsState.allAccounts;
+  const unassignedGroup = mapsState.groups.find(g => g._fixed);
+  const unassignedAccts = new Set((unassignedGroup?.accounts || []).map(a => typeof a === 'string' ? a : (a.display_name || a.name || '')));
+  const isAccts = allAccts.filter(a => _IS_ACCOUNT_TYPES.has(a.type || ''));
+  const bsAccts = allAccts.filter(a => _BS_ACCOUNT_TYPES.has(a.type || ''));
+  const _dn = a => (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : (a.name || '');
+  const isDisplayNames = new Set(isAccts.map(_dn));
+  const bsDisplayNames = new Set(bsAccts.map(_dn));
+  const isUnmapped = [...isDisplayNames].filter(n => !assigned.has(n));
+  const bsUnmapped = [...bsDisplayNames].filter(n => !assigned.has(n));
+  const curStmt = mapsState.statement;
+  const unmapped = curStmt === 'BS' ? bsUnmapped : isUnmapped;
+  const stmtLabel = curStmt === 'BS' ? 'BS' : 'IS';
+  let html = '';
+  if (unmapped.length) {
+    html += `<div class="maps-summary-stat">
+      <div class="maps-summary-label" style="color:#DC2626;">${unmapped.length} unmapped ${stmtLabel} accounts</div>
+      <div class="maps-summary-list">${unmapped.slice(0, 20).map(a => `<div class="maps-summary-list-item">${escHtml(a)}</div>`).join('')}${unmapped.length > 20 ? `<div class="maps-summary-list-item" style="font-style:italic;">...and ${unmapped.length - 20} more</div>` : ''}</div>
+    </div>`;
+  } else {
+    html += `<div class="maps-summary-stat"><div class="maps-summary-label" style="color:#059669;">All ${stmtLabel} accounts mapped</div></div>`;
+  }
+  const otherStmt = curStmt === 'BS' ? 'IS' : 'BS';
+  const otherUnmapped = curStmt === 'BS' ? isUnmapped : bsUnmapped;
+  if (otherUnmapped.length) {
+    html += `<div class="maps-summary-stat" style="margin-top:12px;">
+      <div class="maps-summary-label" style="color:#D97706;">${otherUnmapped.length} unmapped ${otherStmt} accounts</div>
+      <div class="maps-summary-value" style="font-size:11px;">Switch to ${otherStmt} tab to map these</div>
+    </div>`;
+  }
+  const groups = mapsState.groups.filter(g => !g._fixed && (g.statement || 'IS') === curStmt);
+  if (groups.length) {
+    html += `<div class="maps-summary-stat" style="margin-top:16px;">
+      <div class="maps-summary-label">${groups.length} ${stmtLabel} groups</div>
+      ${groups.map(g => `<div class="maps-summary-list-item">${escHtml(g.group_name || '?')} \u00b7 ${escHtml(g.pl_section || 'no section')} \u00b7 ${(g.accounts||[]).length} accts</div>`).join('')}
+    </div>`;
+  }
+  el.innerHTML = html;
+  const vEl = $('mapsValidation');
+  if (vEl) {
+    let badges = '';
+    if (isUnmapped.length) badges += `<span class="maps-list-badge maps-list-badge--err">IS: ${isUnmapped.length} unmapped</span> `;
+    else badges += `<span class="maps-list-badge maps-list-badge--ok">IS: OK</span> `;
+    if (bsUnmapped.length) badges += `<span class="maps-list-badge maps-list-badge--err">BS: ${bsUnmapped.length} unmapped</span>`;
+    else badges += `<span class="maps-list-badge maps-list-badge--ok">BS: OK</span>`;
+    vEl.innerHTML = badges;
+  }
+}
+
+function mapsDragStart(e, acctName, displayName) {
+  e.dataTransfer.setData('text/plain', JSON.stringify({ name: acctName, display_name: displayName || acctName }));
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.classList.add('dragging');
+}
+function mapsDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+function mapsDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function mapsDrop(e, groupIdx) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const raw = e.dataTransfer.getData('text/plain');
+  if (!raw) return;
+  let acctName, displayName;
+  try {
+    const data = JSON.parse(raw);
+    acctName = data.name;
+    displayName = data.display_name || acctName;
+  } catch { acctName = raw; displayName = raw; }
+  if (!acctName) return;
+  for (const g of mapsState.groups) {
+    g.accounts = (g.accounts || []).filter(a => {
+      const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
+      return dn !== displayName;
+    });
+  }
+  mapsState.groups[groupIdx].accounts.push({ name: acctName, display_name: displayName });
+  mapsRenderAll();
+}
+
+function mapsAddGroup() {
+  const idx = mapsState.groups.length - 1;
+  mapsState.groups.splice(idx, 0, { group_name: '', pl_section: '', statement: mapsState.statement, accounts: [] });
+  mapsRenderAll();
+}
+function mapsRemoveGroup(gi) {
+  const g = mapsState.groups[gi];
+  if (g._fixed) return;
+  const unassigned = mapsState.groups.find(g => g._fixed);
+  if (unassigned) unassigned.accounts.push(...(g.accounts || []));
+  mapsState.groups.splice(gi, 1);
+  mapsRenderAll();
+}
+function mapsRenameGroup(gi, name) { mapsState.groups[gi].group_name = name; }
+function mapsSetSection(gi, section) { mapsState.groups[gi].pl_section = section; mapsRenderSummary(); }
+function mapsRemoveAcct(gi, ai) { mapsState.groups[gi].accounts.splice(ai, 1); mapsRenderAll(); }
+
+async function mapsApplyFilter() {
+  const start = val('mapsFilterStart');
+  const end = val('mapsFilterEnd');
+  if (!start || !end) {
+    mapsState.filteredAccounts = null;
+    mapsState.activityTotals = null;
+    mapsRenderAll();
+    return;
+  }
+  if (mapsState.editing) {
+    mapsState.editing.filter_start = start;
+    mapsState.editing.filter_end = end;
+  }
+  const fc = $('mapsFilterCount');
+  if (fc) fc.textContent = 'Fetching activity totals...';
+  // Activity endpoint not yet implemented — just render without activity data
+  mapsRenderAll();
+}
+
+function _buildMapObj() {
+  const mapName = (val('mapsEditorName') || '').trim();
+  const groups = mapsState.groups
+    .filter(g => !g._fixed)
+    .map(g => ({
+      group_name: g.group_name,
+      pl_section: g.pl_section || '',
+      statement: g.statement || 'IS',
+      accounts: (g.accounts || []).map(a => typeof a === 'string' ? a : (a.display_name || a.name || a.account_name || '')),
+    }));
+  return {
+    map_name: mapName,
+    groups: groups,
+    filter_start: val('mapsFilterStart') || '',
+    filter_end: val('mapsFilterEnd') || '',
+  };
+}
+
+async function mapsSaveEditor() {
+  const mapName = (val('mapsEditorName') || '').trim();
+  if (!mapName) { alert('Map name is required.'); return; }
+  const mapObj = _buildMapObj();
+  const missingSections = mapObj.groups.filter(g => !g.pl_section);
+  if (missingSections.length) {
+    const names = missingSections.map(g => g.group_name || '(unnamed)').join(', ');
+    alert('All groups must have a section assigned before saving.\n\nMissing section: ' + names);
+    return;
+  }
+  const isExisting = mapsState.editing?._idx != null;
+  if (!isExisting || !mapsState.originalMap) {
+    await _doSaveMap(mapObj, false);
+    return;
+  }
+  const original = mapsState.originalMap;
+  const changed = JSON.stringify({ map_name: mapObj.map_name, groups: mapObj.groups })
+               !== JSON.stringify({ map_name: original.map_name, groups: original.groups });
+  if (!changed) { mapsCloseEditor(); return; }
+  if (confirm('Save changes to \'' + mapObj.map_name + '\'?')) {
+    await _doSaveMap(mapObj, false);
+  }
+}
+
+async function _doSaveMap(mapObj, asNew) {
+  const allMaps = [...mapsState.maps];
+  const editIdx = mapsState.editing?._idx;
+  if (!asNew && editIdx != null && editIdx >= 0) {
+    allMaps[editIdx] = mapObj;
+  } else {
+    allMaps.push(mapObj);
+  }
+  const realmId = _getRealmId();
+  try {
+    await fetch(API + '/api/mapping/' + realmId, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ account_maps: allMaps }),
+    });
+    mapsState.maps = allMaps;
+    mapsCloseEditor();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function mapsDelete(idx) {
+  const m = mapsState.maps[idx];
+  const name = m?.map_name || 'this map';
+  if (!confirm('Delete \'' + name + '\'? This cannot be undone.')) return;
+  const allMaps = [...mapsState.maps];
+  allMaps.splice(idx, 1);
+  const realmId = _getRealmId();
+  try {
+    await fetch(API + '/api/mapping/' + realmId, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ account_maps: allMaps }),
+    });
+    mapsState.maps = allMaps;
+    mapsRenderList();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Check for OAuth callback
   const params = new URLSearchParams(window.location.search);

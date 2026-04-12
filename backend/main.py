@@ -43,6 +43,14 @@ except Exception as e:
     logger.error(f"Failed to load reports router: {e}")
     logger.error(traceback.format_exc())
 
+try:
+    from backend.mapping import router as mapping_router
+    app.include_router(mapping_router)
+    logger.info("Mapping router loaded")
+except Exception as e:
+    logger.error(f"Failed to load mapping router: {e}")
+    logger.error(traceback.format_exc())
+
 FRONTEND = Path(__file__).parent.parent / "frontend"
 logger.info(f"Frontend path: {FRONTEND}")
 logger.info(f"Frontend exists: {FRONTEND.exists()}")
