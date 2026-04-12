@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pathlib import Path
 from backend.qbo_oauth import router as qbo_router
 from backend.auth import router as auth_router
@@ -21,6 +21,8 @@ app.include_router(auth_router)
 app.include_router(qbo_router)
 app.include_router(reports_router)
 
+FRONTEND = Path(__file__).parent.parent / "frontend"
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "acorn"}
@@ -29,7 +31,14 @@ def health():
 def root():
     return RedirectResponse(url="/login.html")
 
-# Serve frontend static files
-frontend_path = Path(__file__).parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+@app.get("/login.html")
+def login_page():
+    return FileResponse(FRONTEND / "login.html")
+
+@app.get("/app.html")
+def app_page():
+    return FileResponse(FRONTEND / "app.html")
+
+@app.get("/style.css")
+def styles():
+    return FileResponse(FRONTEND / "style.css", media_type="text/css")
