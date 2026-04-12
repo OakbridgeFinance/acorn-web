@@ -4,3 +4,7 @@ python-dotenv
 httpx
 supabase
 aiofiles
+pandas
+openpyxl
+requests
+python-dateutil
