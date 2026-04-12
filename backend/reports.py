@@ -56,11 +56,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         tokens = token_result.data[0]
 
-        # Write tokens to a temp env so qbo_client can use them
-        # (we'll refactor this properly later)
-        os.environ["QBO_ACCESS_TOKEN"]  = tokens["access_token"]
-        os.environ["QBO_REFRESH_TOKEN"] = tokens["refresh_token"]
-        os.environ["QBO_REALM_ID"]      = realm_id
+        # Set env vars in the format token_manager.py expects:
+        #   QBO_{ALIAS}_REALM_ID, QBO_{ALIAS}_ACCESS_TOKEN, etc.
+        # Use realm_id as the alias — _sanitize() will uppercase it
+        import re as _re
+        sanitized = _re.sub(r"[^A-Z0-9]", "_", realm_id.upper())
+        os.environ[f"QBO_{sanitized}_REALM_ID"]      = realm_id
+        os.environ[f"QBO_{sanitized}_ACCESS_TOKEN"]   = tokens["access_token"]
+        os.environ[f"QBO_{sanitized}_REFRESH_TOKEN"]  = tokens["refresh_token"]
+        os.environ[f"QBO_{sanitized}_TOKEN_EXPIRY"]   = tokens.get("expires_at", "")
+        os.environ["QBO_ENVIRONMENT"] = "production"
 
         # Generate report to a temp file
         with tempfile.TemporaryDirectory() as tmpdir:
