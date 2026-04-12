@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acorn — Oakbridge Finance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-text">
+        <div class="brand-name">Acorn</div>
+        <div class="brand-sub">Oakbridge Finance</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section-label" style="display:flex; justify-content:space-between; align-items:center;">
+      Clients
+      <button id="liteAddClientBtn" onclick="connectQBO()" style="
+        background:transparent; border:1px solid #C97D60; color:#C97D60;
+        border-radius:6px; padding:4px 10px; font-size:11px; font-weight:500;
+        cursor:pointer;
+      ">+ Add</button>
+    </div>
+    <ul class="client-list" id="clientList">
+      <li class="client-placeholder">Loading...</li>
+    </ul>
+    <div class="sidebar-refresh">
+      <button class="refresh-btn" onclick="loadCompanies()" title="Refresh connections">&#8635; Refresh Connections</button>
+    </div>
+    <div class="sidebar-signout">
+      <button class="signout-btn" onclick="signOut()">Sign Out</button>
+    </div>
+  </nav>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <div class="main">
+    <div class="page active" id="pageLite">
+
+      <div class="page-header">
+        <div class="page-header-left">
+          <button class="back-btn" onclick="goBack()">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/>
+            </svg>
+            Back
+          </button>
+          <h1 class="page-title">Acorn</h1>
+          <p class="page-sub" id="liteClientSub"></p>
+        </div>
+      </div>
+
+      <!-- Landing / How-To (shown when no client is selected) -->
+      <div id="liteLanding" class="lite-landing">
+        <div class="landing-logo">
+          <h1>Acorn</h1>
+          <p class="landing-sub">GL Extraction &amp; Validation for QuickBooks Online</p>
+        </div>
+
+        <div class="landing-steps">
+          <div class="landing-step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Connect a QBO Company</strong>
+              <p>Click <em>+ Add</em> at the top of the sidebar to authorize Acorn
+              with your QuickBooks Online company.</p>
+            </div>
+          </div>
+          <div class="landing-step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Select a Client</strong>
+              <p>Once connected, click the company name in the sidebar. The report
+              configuration panel will appear.</p>
+            </div>
+          </div>
+          <div class="landing-step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Set Your Date Range</strong>
+              <p>Choose a start and end date. Acorn will pull all GL transactions
+              and month-end balances for the selected period.</p>
+            </div>
+          </div>
+          <div class="landing-step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Generate Report</strong>
+              <p>Click <em>Generate Report</em>. Acorn will fetch your GL data,
+              build 8 structured Excel tabs, and prepare the file for download.</p>
+            </div>
+          </div>
+          <div class="landing-step">
+            <div class="step-num">5</div>
+            <div class="step-body">
+              <strong>Download</strong>
+              <p>When complete, click the download link to save your Excel file.</p>
+            </div>
+          </div>
+          <div class="landing-step">
+            <div class="step-num">6</div>
+            <div class="step-body">
+              <strong>What You Get</strong>
+              <p>IS GL Detail &middot; BS GL Detail &middot; BS Balances &middot; P&amp;L &middot; Balance Sheet &middot;
+              IS by Class &middot; IS by Location &middot; Validation &mdash; with live cross-check
+              formulas proving GL completeness.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="liteReportForm" style="display:none;">
+      <!-- Period card -->
+      <div class="card">
+        <div class="card-header">Reporting Period</div>
+        <div class="card-body">
+          <div class="field-row">
+            <label class="field-label" for="litePeriod">Period</label>
+            <select class="select" id="litePeriod" onchange="onPeriodChange()">
+              <option>Prior Month</option>
+              <option>Current Month</option>
+              <option>Prior Quarter</option>
+              <option>Current Quarter</option>
+              <option>Year to Date</option>
+              <option>Prior Full Year</option>
+              <option>Trailing 12 Months</option>
+              <option>Custom Date Range</option>
+            </select>
+          </div>
+          <div id="liteCustomDates" class="custom-dates hidden">
+            <div class="field-row">
+              <label class="field-label" for="liteDateStart">Start</label>
+              <input type="date" class="input" id="liteDateStart" />
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="liteDateEnd">End</label>
+              <input type="date" class="input" id="liteDateEnd" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output section -->
+      <div class="output-section">
+        <div class="output-label">OUTPUT</div>
+
+        <div class="field-row" id="liteGlDimRow">
+          <label class="field-label">IS GL Dimension</label>
+          <select class="select" id="liteGlDimension">
+            <option value="class">By Class</option>
+            <option value="location">By Location</option>
+            <option value="none" selected>No Pivot (Class + Location columns)</option>
+          </select>
+        </div>
+
+        <div class="action-bar" style="margin-top:16px;">
+          <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="width:100%;">
+            <span id="btnLiteLabel">Generate Report</span>
+            <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Progress card -->
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header">
+          <span id="liteProgressTitle">Ready</span>
+        </div>
+        <div class="card-body">
+          <div class="progress-track">
+            <div class="progress-bar" id="liteProgressBar"></div>
+          </div>
+          <pre class="log-output" id="liteLogOutput"></pre>
+        </div>
+      </div>
+
+      <!-- Status banner -->
+      <div class="status-banner hidden" id="liteStatusBanner"></div>
+      </div><!-- /#liteReportForm -->
+
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'https://acorn-web-production.up.railway.app';
+
+// ── Auth helpers ────────────────────────────────────────────────────────────
+function getToken()  { return localStorage.getItem('acorn_access_token'); }
+function getUserId() { return localStorage.getItem('acorn_user_id'); }
+
+function authHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + getToken(),
+  };
+}
+
+// Redirect to login if no token
+if (!getToken()) { window.location.href = 'login.html'; }
+
+function signOut() {
+  localStorage.removeItem('acorn_access_token');
+  localStorage.removeItem('acorn_refresh_token');
+  localStorage.removeItem('acorn_user_id');
+  localStorage.removeItem('acorn_email');
+  window.location.href = 'login.html';
+}
+
+// ── DOM helpers ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const val = id => { const e = $(id); return e ? e.value : ''; };
+const show = el => { if (typeof el === 'string') el = $(el); if (el) el.classList.remove('hidden'); };
+const hide = el => { if (typeof el === 'string') el = $(el); if (el) el.classList.add('hidden'); };
+const escHtml = s => s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : '';
+
+// ── State ───────────────────────────────────────────────────────────────────
+let state = { realmId: null, companies: [], running: false, startTime: null, pollTimer: null };
+
+// ── Company list ────────────────────────────────────────────────────────────
+async function loadCompanies() {
+  try {
+    const res = await fetch(API + '/api/qbo/companies?user_id=' + getUserId(), {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    state.companies = data.companies || [];
+    renderClientList();
+  } catch(e) {
+    console.error('Load companies failed:', e);
+  }
+}
+
+function renderClientList() {
+  const list = $('clientList');
+  if (!list) return;
+  if (state.companies.length === 0) {
+    list.innerHTML = '<li class="client-placeholder">No companies connected</li>';
+    return;
+  }
+  list.innerHTML = state.companies.map(c => `
+    <li class="client-item${c.realm_id === state.realmId ? ' active' : ''}"
+        onclick="selectClient('${escHtml(c.realm_id)}', '${escHtml(c.company_name)}')">
+      <span class="client-name">${escHtml(c.company_name)}</span>
+    </li>
+  `).join('');
+}
+
+function selectClient(realmId, companyName) {
+  state.realmId = realmId;
+  renderClientList();
+
+  const sub = $('liteClientSub');
+  if (sub) sub.textContent = companyName + '  \u00b7  QBO';
+
+  // Show report form, hide landing
+  const landing = $('liteLanding');
+  const form    = $('liteReportForm');
+  if (landing) { landing.classList.add('hidden');    landing.style.display = 'none'; }
+  if (form)    { form.classList.remove('hidden');    form.style.display    = ''; }
+
+  // Default to Prior Month
+  if ($('litePeriod')) $('litePeriod').value = 'Prior Month';
+  onPeriodChange();
+}
+
+function goBack() {
+  state.realmId = null;
+  renderClientList();
+
+  const landing = $('liteLanding');
+  const form    = $('liteReportForm');
+  if (landing) { landing.style.display = '';     landing.classList.remove('hidden'); }
+  if (form)    { form.style.display    = 'none'; form.classList.add('hidden'); }
+}
+
+// ── QBO OAuth ───────────────────────────────────────────────────────────────
+async function connectQBO() {
+  try {
+    const res = await fetch(API + '/api/qbo/auth-url?user_id=' + getUserId(), {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (data.auth_url) {
+      window.location.href = data.auth_url;
+    }
+  } catch(e) {
+    alert('Failed to start QBO connection: ' + e.message);
+  }
+}
+
+// ── Period selector ─────────────────────────────────────────────────────────
+function onPeriodChange() {
+  const opt = val('litePeriod');
+  const isCustom = opt === 'Custom Date Range';
+  isCustom ? show('liteCustomDates') : hide('liteCustomDates');
+
+  if (!isCustom) {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth() + 1;
+    let s, e;
+
+    switch (opt) {
+      case 'Current Month':
+        s = new Date(y, m - 1, 1);
+        e = new Date(y, m, 0);
+        break;
+      case 'Prior Month': {
+        const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
+        s = new Date(py, pm - 1, 1);
+        e = new Date(py, pm, 0);
+        break;
+      }
+      case 'Current Quarter': {
+        const qm = Math.floor((m - 1) / 3) * 3 + 1;
+        s = new Date(y, qm - 1, 1);
+        e = new Date(y, qm + 2, 0);
+        break;
+      }
+      case 'Prior Quarter': {
+        let qm = Math.floor((m - 1) / 3) * 3 + 1 - 3;
+        const qy = qm < 1 ? y - 1 : y;
+        if (qm < 1) qm += 12;
+        s = new Date(qy, qm - 1, 1);
+        e = new Date(qy, qm + 2, 0);
+        break;
+      }
+      case 'Year to Date':
+        s = new Date(y, 0, 1);
+        e = now;
+        break;
+      case 'Prior Full Year':
+        s = new Date(y - 1, 0, 1);
+        e = new Date(y - 1, 11, 31);
+        break;
+      case 'Trailing 12 Months': {
+        const py2 = m === 1 ? y - 1 : y, pm2 = m === 1 ? 12 : m - 1;
+        e = new Date(py2, pm2, 0);
+        let sm = pm2 - 11, sy = py2;
+        if (sm < 1) { sm += 12; sy--; }
+        s = new Date(sy, sm - 1, 1);
+        break;
+      }
+      default:
+        s = now; e = now;
+    }
+
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    if ($('liteDateStart')) $('liteDateStart').value = fmt(s);
+    if ($('liteDateEnd'))   $('liteDateEnd').value   = fmt(e);
+  }
+}
+
+// ── Generate ────────────────────────────────────────────────────────────────
+async function generate() {
+  if (!state.realmId) return;
+
+  const startDate = val('liteDateStart');
+  const endDate   = val('liteDateEnd');
+
+  if (!startDate || !endDate) {
+    alert('Please enter both a start date and end date.');
+    return;
+  }
+  if (startDate >= endDate) {
+    alert('Start date must be before end date.');
+    return;
+  }
+
+  clearLog();
+  hideStatus();
+  setRunning(true);
+
+  try {
+    const res = await fetch(API + '/api/reports/generate', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        realm_id:   state.realmId,
+        start_date: startDate,
+        end_date:   endDate,
+        dimension:  $('liteGlDimension')?.value || 'none',
+      }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || 'Failed to start report');
+    }
+
+    appendLog('Job started. Generating report...');
+    pollJob(data.job_id);
+
+  } catch (e) {
+    showStatus('Error: ' + e.message, 'error');
+    setRunning(false);
+  }
+}
+
+// ── Job polling ─────────────────────────────────────────────────────────────
+function pollJob(jobId) {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+
+  state.pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(API + '/api/reports/job/' + jobId, {
+        headers: authHeaders(),
+      });
+      const job = await res.json();
+
+      if (job.status === 'running') {
+        setProgress(50);
+        appendLog('Processing...');
+      } else if (job.status === 'complete') {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        setProgress(100);
+        setRunning(false);
+        showStatus('Report complete!', 'success');
+
+        // Add download link
+        if (job.file_url) {
+          const banner = $('liteStatusBanner');
+          if (banner) {
+            const link = document.createElement('a');
+            link.href = job.file_url;
+            link.className = 'download-link';
+            link.textContent = 'Download Excel File';
+            link.target = '_blank';
+            banner.appendChild(document.createElement('br'));
+            banner.appendChild(link);
+          }
+        }
+      } else if (job.status === 'failed') {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        setRunning(false);
+        showStatus('Error: ' + (job.error || 'Report generation failed'), 'error');
+      }
+    } catch (e) {
+      console.error('Poll error:', e);
+    }
+  }, 3000);
+}
+
+// ── UI helpers ──────────────────────────────────────────────────────────────
+function setRunning(running) {
+  state.running = running;
+  if (running) state.startTime = Date.now();
+  const btn = $('btnLiteGenerate');
+  const lbl = $('btnLiteLabel');
+  const spinner = $('btnLiteSpinner');
+  if (btn) btn.disabled = running;
+  if (lbl) lbl.textContent = running ? 'Generating\u2026' : 'Generate Report';
+  if (spinner) running ? show(spinner) : hide(spinner);
+  const title = $('liteProgressTitle');
+  if (title) {
+    if (running) {
+      title.textContent = 'Running\u2026';
+    } else {
+      const elapsed = state.startTime ? ((Date.now() - state.startTime) / 1000).toFixed(1) : null;
+      title.textContent = elapsed ? 'Done in ' + elapsed + 's' : 'Done';
+    }
+  }
+}
+
+function setProgress(pct) {
+  const b = $('liteProgressBar');
+  if (b) b.style.width = pct + '%';
+}
+
+function appendLog(text) {
+  const el = $('liteLogOutput');
+  if (!el) return;
+  el.textContent += (el.textContent ? '\n' : '') + String(text);
+  el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() { const e = $('liteLogOutput'); if (e) e.textContent = ''; }
+function hideStatus() { const e = $('liteStatusBanner'); if (e) { e.innerHTML = ''; hide(e); } }
+
+function showStatus(msg, type) {
+  const el = $('liteStatusBanner');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'status-banner ' + type;
+  show(el);
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Check for OAuth callback
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('connected') === 'true') {
+    // Clean URL
+    window.history.replaceState({}, '', 'app.html');
+  }
+
+  loadCompanies();
+
+  // Date validation listeners
+  $('liteDateStart')?.addEventListener('change', function() {
+    const endInput = $('liteDateEnd');
+    if (!endInput) return;
+    if (this.value && endInput.value && this.value >= endInput.value) {
+      endInput.style.borderColor = '#e53e3e';
+      endInput.title = 'End date must be after start date';
+    } else {
+      endInput.style.borderColor = '';
+      endInput.title = '';
+    }
+  });
+
+  $('liteDateEnd')?.addEventListener('change', function() {
+    const startInput = $('liteDateStart');
+    if (!startInput) return;
+    if (startInput.value && this.value && startInput.value >= this.value) {
+      this.style.borderColor = '#e53e3e';
+      this.title = 'End date must be after start date';
+    } else {
+      this.style.borderColor = '';
+      this.title = '';
+    }
+  });
+});
+</script>
+</body>
+</html>

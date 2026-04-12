@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Acorn</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="login-screen">
+  <div style="text-align:center;">
+    <h1 style="font-size:28px;font-weight:700;margin:0 0 4px;color:#1a1a1a;">Acorn</h1>
+    <p style="color:#666;font-size:15px;margin:0;">GL Extraction &amp; Validation for QBO</p>
+  </div>
+
+  <div class="login-card">
+    <h2 id="authTitle">Sign In</h2>
+
+    <div class="login-field">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@company.com" />
+    </div>
+    <div class="login-field">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Password" />
+    </div>
+
+    <button class="login-btn" id="authBtn" onclick="doAuth()">Sign In</button>
+    <div class="login-error" id="authError"></div>
+
+    <div class="login-toggle">
+      <span id="toggleText">Don't have an account?</span>
+      <a id="toggleLink" onclick="toggleMode()">Sign Up</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'https://acorn-web-production.up.railway.app';
+let isSignup = false;
+
+function toggleMode() {
+  isSignup = !isSignup;
+  document.getElementById('authTitle').textContent = isSignup ? 'Create Account' : 'Sign In';
+  document.getElementById('authBtn').textContent   = isSignup ? 'Create Account' : 'Sign In';
+  document.getElementById('toggleText').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('toggleLink').textContent = isSignup ? 'Sign In' : 'Sign Up';
+  document.getElementById('authError').style.display = 'none';
+}
+
+async function doAuth() {
+  const email    = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl    = document.getElementById('authError');
+  const btn      = document.getElementById('authBtn');
+
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = isSignup ? 'Creating account\u2026' : 'Signing in\u2026';
+  errEl.style.display = 'none';
+
+  try {
+    const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
+    const res = await fetch(API + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || 'Authentication failed');
+    }
+
+    if (isSignup) {
+      errEl.textContent = data.message || 'Check your email to confirm.';
+      errEl.style.color = '#059669';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Create Account';
+      return;
+    }
+
+    // Login success — store credentials and redirect
+    localStorage.setItem('acorn_access_token',  data.access_token);
+    localStorage.setItem('acorn_refresh_token', data.refresh_token);
+    localStorage.setItem('acorn_user_id',       data.user_id);
+    localStorage.setItem('acorn_email',         data.email);
+    window.location.href = 'app.html';
+
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.color = '#dc2626';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = isSignup ? 'Create Account' : 'Sign In';
+  }
+}
+
+// If already logged in, go straight to app
+if (localStorage.getItem('acorn_access_token')) {
+  window.location.href = 'app.html';
+}
+
+// Enter key submits
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') doAuth();
+});
+</script>
+</body>
+</html>
