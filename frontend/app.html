@@ -35,7 +35,7 @@
       <li class="client-placeholder">Loading...</li>
     </ul>
     <div class="sidebar-refresh">
-      <button class="refresh-btn" onclick="loadCompanies()" title="Refresh connections">&#8635; Refresh Connections</button>
+      <button class="refresh-btn" id="refreshConBtn" onclick="refreshConnections()" title="Refresh connections">&#8635; Refresh Connections</button>
     </div>
     <div class="sidebar-refresh" style="border-top:1px solid rgba(255,255,255,0.07); padding-top:10px;">
       <button class="refresh-btn" onclick="showMappingPage()" title="Account Mapping">Account Mapping</button>
@@ -363,6 +363,24 @@ async function loadCompanies() {
     renderClientList();
   } catch(e) {
     console.error('Load companies failed:', e);
+  }
+}
+
+async function refreshConnections() {
+  const btn = $('refreshConBtn');
+  if (!btn) return;
+  const originalText = btn.textContent;
+  btn.textContent = 'Refreshing...';
+  btn.disabled = true;
+  try {
+    await loadCompanies();
+    btn.textContent = '\u2713 Refreshed';
+    btn.style.color = 'rgba(52,211,153,0.9)';
+    setTimeout(() => { btn.textContent = originalText; btn.style.color = ''; btn.disabled = false; }, 2000);
+  } catch (e) {
+    btn.textContent = 'Failed \u2014 try again';
+    btn.style.color = 'rgba(239,68,68,0.9)';
+    setTimeout(() => { btn.textContent = originalText; btn.style.color = ''; btn.disabled = false; }, 3000);
   }
 }
 
