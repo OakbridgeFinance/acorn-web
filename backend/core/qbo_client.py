@@ -14,6 +14,16 @@ QBO_API_HOSTS = {
 
 MINOR_VERSION = "75"
 
+# Web mode: when set, use these tokens instead of token_manager
+_override_tokens: dict | None = None
+
+
+def set_override_tokens(tokens: dict | None) -> None:
+    """Set tokens directly (used by web backend to inject Supabase tokens)."""
+    global _override_tokens
+    _override_tokens = tokens
+
+
 # Module-level flag: when True, all fetch_report calls include testing_migration
 # Set via set_v2_test_mode() before generating reports.
 _v2_test_mode: bool = False
@@ -58,7 +68,7 @@ def fetch_report(company_alias: str, report_name: str, params: dict | None = Non
     Returns:
         The raw report JSON as a dict
     """
-    tokens = get_company_tokens(company_alias)
+    tokens = _override_tokens if _override_tokens is not None else get_company_tokens(company_alias)
     realm_id = tokens["realm_id"]
     access_token = tokens["access_token"]
 
@@ -130,7 +140,7 @@ def fetch_query(company_alias: str, sql: str, page_size: int = 1000) -> list[dic
     """
     import re as _re
 
-    tokens       = get_company_tokens(company_alias)
+    tokens       = _override_tokens if _override_tokens is not None else get_company_tokens(company_alias)
     realm_id     = tokens["realm_id"]
     access_token = tokens["access_token"]
     url          = f"{_base_url()}/v3/company/{realm_id}/query"
@@ -170,7 +180,7 @@ def fetch_accounts(company_alias: str) -> list[dict]:
     Returns a list of account dicts with Id, Name, AccountType,
     AccountSubType, and AcctNum (account number).
     """
-    tokens = get_company_tokens(company_alias)
+    tokens = _override_tokens if _override_tokens is not None else get_company_tokens(company_alias)
     realm_id = tokens["realm_id"]
     access_token = tokens["access_token"]
 
