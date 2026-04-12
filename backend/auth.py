@@ -29,6 +29,10 @@ class AuthRequest(BaseModel):
     password: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/signup")
 def signup(body: AuthRequest):
     """Create a new user account."""
@@ -60,6 +64,20 @@ def login(body: AuthRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+
+@router.post("/refresh")
+def refresh_token(body: RefreshRequest):
+    """Refresh an expired access token."""
+    supabase = get_supabase_anon()
+    try:
+        result = supabase.auth.refresh_session(body.refresh_token)
+        return {
+            "access_token":  result.session.access_token,
+            "refresh_token": result.session.refresh_token,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):

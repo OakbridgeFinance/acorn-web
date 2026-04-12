@@ -224,11 +224,39 @@ const show = el => { if (typeof el === 'string') el = $(el); if (el) el.classLis
 const hide = el => { if (typeof el === 'string') el = $(el); if (el) el.classList.add('hidden'); };
 const escHtml = s => s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : '';
 
+// ── Token refresh ───────────────────────────────────────────────────────────
+async function refreshTokenIfNeeded() {
+  const refreshToken = localStorage.getItem('acorn_refresh_token');
+  if (!refreshToken) {
+    window.location.href = 'login.html';
+    return false;
+  }
+
+  try {
+    const res = await fetch(API + '/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) {
+      window.location.href = 'login.html';
+      return false;
+    }
+    const data = await res.json();
+    localStorage.setItem('acorn_access_token', data.access_token);
+    localStorage.setItem('acorn_refresh_token', data.refresh_token);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 let state = { realmId: null, companies: [], running: false, startTime: null, pollTimer: null };
 
 // ── Company list ────────────────────────────────────────────────────────────
 async function loadCompanies() {
+  await refreshTokenIfNeeded();
   try {
     const res = await fetch(API + '/api/qbo/companies?user_id=' + getUserId(), {
       headers: authHeaders(),
@@ -364,6 +392,7 @@ function onPeriodChange() {
 // ── Generate ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!state.realmId) return;
+  await refreshTokenIfNeeded();
 
   const startDate = val('liteDateStart');
   const endDate   = val('liteDateEnd');
