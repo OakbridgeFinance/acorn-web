@@ -44,10 +44,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         sys.path.insert(0, str(Path(__file__).parent / "core"))
         from gl_extractor import generate_lite
 
-        # Get tokens from Supabase
+        # Get tokens and company name from Supabase
         supabase = get_supabase()
         token_result = supabase.table("qbo_tokens").select(
-            "access_token, refresh_token"
+            "access_token, refresh_token, company_name"
         ).eq("user_id", user_id).eq("realm_id", realm_id).execute()
 
         if not token_result.data:
@@ -55,6 +55,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             return
 
         tokens = token_result.data[0]
+        company_name = tokens.get("company_name", realm_id)
 
         # Set env vars in the format token_manager.py expects:
         #   QBO_{ALIAS}_REALM_ID, QBO_{ALIAS}_ACCESS_TOKEN, etc.
@@ -67,6 +68,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         os.environ[f"QBO_{sanitized}_TOKEN_EXPIRY"]   = tokens.get("expires_at", "")
         os.environ["QBO_ENVIRONMENT"] = "production"
 
+        # Clean company name for filename
+        clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
+        file_name = f"{clean_name}_{start_date[:7]}_{end_date[:7]}.xlsx"
+
         # Generate report to a temp file
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_lite(
@@ -75,12 +80,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 end_date=end_date,
                 output_mode="new",
                 output_folder=tmpdir,
+                file_name=file_name,
                 dimension=dimension,
             )
 
             # Upload to Supabase storage
             file_path = result["path"]
-            file_name = Path(file_path).name
             storage_path = f"{user_id}/{job_id}/{file_name}"
 
             with open(file_path, "rb") as f:
