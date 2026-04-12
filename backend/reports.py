@@ -1,7 +1,12 @@
+import sys
+from pathlib import Path
+
+# Add core directory to path so gl_extractor and its dependencies can import token_manager
+sys.path.insert(0, str(Path(__file__).parent / "core"))
+
 import os
 import threading
 import tempfile
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client
