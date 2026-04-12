@@ -5,9 +5,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "core"))
 
 import os
+import logging
 import threading
 import tempfile
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from supabase import create_client
 from backend.auth import get_current_user
@@ -101,12 +104,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         # Inject Supabase tokens directly into qbo_client
         import qbo_client
+        logger.info(f"Setting override tokens for realm_id={realm_id}, access_token starts with: {access_token[:20]}")
         qbo_client.set_override_tokens({
             "realm_id":     realm_id,
             "access_token": access_token,
             "refresh_token": refresh_token,
         })
         qbo_client.get_environment = lambda: "production"
+        logger.info("Override tokens set successfully")
 
         # Clean company name for filename
         clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
@@ -154,6 +159,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         update_job(job_id, status="failed", error=str(e))
     finally:
         try:
+            logger.info("Clearing override tokens in finally block")
             qbo_client.set_override_tokens(None)
         except Exception:
             pass

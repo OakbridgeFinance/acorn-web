@@ -68,9 +68,12 @@ def fetch_report(company_alias: str, report_name: str, params: dict | None = Non
     Returns:
         The raw report JSON as a dict
     """
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
     tokens = _override_tokens if _override_tokens is not None else get_company_tokens(company_alias)
     realm_id = tokens["realm_id"]
     access_token = tokens["access_token"]
+    _logger.info(f"fetch_report: using {'override' if _override_tokens is not None else 'token_manager'} tokens, realm_id={realm_id}")
 
     url = f"{_base_url()}/v3/company/{realm_id}/reports/{report_name}"
 
