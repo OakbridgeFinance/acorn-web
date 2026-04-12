@@ -1922,10 +1922,12 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .maps-stmt-btn:hover:not(.active) { background: var(--bg); }
 .maps-date-filter { display: flex; align-items: center; gap: 4px; padding: 8px 12px; background: #F9FAFB; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px; font-size: 12px; }
 .maps-filter-count { margin-left: auto; font-size: 11px; color: var(--text-light); font-weight: 600; }
-.maps-layout { display: flex; gap: 12px; height: calc(100vh - 260px); min-height: 500px; width: 100%; overflow: hidden; }
-.maps-panel--accounts { width: 300px; min-width: 240px; max-width: 400px; flex-shrink: 0; }
-.maps-panel--groups { flex: 1; min-width: 320px; overflow: hidden; }
-.maps-panel--settings { width: 240px; min-width: 180px; flex-shrink: 0; }
+.maps-layout { display: flex; gap: 0; height: calc(100vh - 260px); min-height: 500px; width: 100%; overflow: hidden; }
+.maps-panel--accounts { width: 300px; min-width: 180px; max-width: 500px; flex-shrink: 0; overflow: hidden; }
+.maps-panel--groups { flex: 1; min-width: 280px; overflow: hidden; }
+.maps-panel--settings { width: 220px; min-width: 150px; max-width: 380px; flex-shrink: 0; overflow: hidden; }
+.maps-resize-handle { width: 6px; min-width: 6px; cursor: col-resize; background: var(--border); flex-shrink: 0; transition: background 0.12s; border-radius: 2px; margin: 0 2px; }
+.maps-resize-handle:hover, .maps-resize-handle.active { background: var(--accent); }
 .maps-panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .maps-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .maps-panel-title { font-size: 13px; font-weight: 600; color: var(--text); }

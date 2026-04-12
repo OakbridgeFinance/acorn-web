@@ -257,8 +257,8 @@
           <span class="maps-filter-count" id="mapsFilterCount"></span>
         </div>
 
-        <div class="maps-layout">
-          <div class="maps-panel maps-panel--accounts">
+        <div class="maps-layout" id="mapsLayout">
+          <div class="maps-panel maps-panel--accounts" id="mapsPanelAccounts">
             <div class="maps-panel-header" style="flex-wrap:wrap;">
               <span class="maps-panel-title">QBO Accounts</span>
               <div style="display:flex; gap:6px; width:100%; margin-top:6px;">
@@ -274,9 +274,9 @@
             <div class="maps-account-list" id="mapsAccountList"></div>
           </div>
 
-          <div class="maps-resize-handle"></div>
+          <div class="maps-resize-handle" id="mapsResizeHandle1"></div>
 
-          <div class="maps-panel maps-panel--groups">
+          <div class="maps-panel maps-panel--groups" id="mapsPanelGroups">
             <div class="maps-panel-header">
               <span class="maps-panel-title">Groups</span>
               <button class="btn-outline btn-sm" onclick="mapsAddGroup()">+ Add Group</button>
@@ -284,7 +284,9 @@
             <div class="maps-group-list" id="mapsGroupList"></div>
           </div>
 
-          <div class="maps-panel maps-panel--settings">
+          <div class="maps-resize-handle" id="mapsResizeHandle2"></div>
+
+          <div class="maps-panel maps-panel--settings" id="mapsPanelSettings">
             <div class="maps-panel-header">
               <span class="maps-panel-title">Summary</span>
             </div>
@@ -900,29 +902,34 @@ function mapsCloseEditor() {
 }
 
 function _mapsInitResize() {
-  const handle = document.querySelector('.maps-resize-handle');
-  const panel = document.querySelector('.maps-panel--accounts');
-  if (!handle || !panel) return;
-  let startX = 0, startW = 0;
-  function onMove(e) {
-    const w = startW + (e.clientX - startX);
-    panel.style.width = Math.max(200, Math.min(600, w)) + 'px';
-    panel.style.minWidth = 'unset';
-    panel.style.flex = 'none';
+  function makeResizable(handleId, leftPanelId) {
+    const handle = document.getElementById(handleId);
+    const leftPanel = document.getElementById(leftPanelId);
+    if (!handle || !leftPanel) return;
+
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = leftPanel.getBoundingClientRect().width;
+      handle.classList.add('active');
+
+      function onMove(ev) {
+        const w = startW + (ev.clientX - startX);
+        leftPanel.style.width = Math.max(150, w) + 'px';
+        leftPanel.style.flex = 'none';
+      }
+      function onUp() {
+        handle.classList.remove('active');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
-  function onUp() {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-    handle.classList.remove('active');
-  }
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    startX = e.clientX;
-    startW = panel.getBoundingClientRect().width;
-    handle.classList.add('active');
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
+
+  makeResizable('mapsResizeHandle1', 'mapsPanelAccounts');
+  makeResizable('mapsResizeHandle2', 'mapsPanelGroups');
 }
 
 function _mapsAssignedSet() {
