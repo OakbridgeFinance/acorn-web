@@ -428,17 +428,23 @@ function pollJob(jobId) {
         setRunning(false);
         showStatus('Report complete!', 'success');
 
-        // Add download link
+        // Show Save As button
         if (job.file_url) {
           const banner = $('liteStatusBanner');
           if (banner) {
-            const link = document.createElement('a');
-            link.href = job.file_url;
-            link.className = 'download-link';
-            link.textContent = 'Download Excel File';
-            link.target = '_blank';
-            banner.appendChild(document.createElement('br'));
-            banner.appendChild(link);
+            // Extract suggested filename from URL or build from job
+            const urlParts = job.file_url.replace(/\\/g, '/').split('/');
+            let suggestedName = urlParts[urlParts.length - 1].split('?')[0] || 'report.xlsx';
+            suggestedName = decodeURIComponent(suggestedName);
+
+            const wrapper = document.createElement('div');
+            wrapper.style.marginTop = '16px';
+            wrapper.innerHTML =
+              '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">\ud83d\udcbe Save As</button>' +
+              '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>';
+            banner.appendChild(wrapper);
+
+            $('saveAsBtn').onclick = function() { saveReportAs(job.file_url, suggestedName); };
           }
         }
       } else if (job.status === 'failed') {
@@ -451,6 +457,57 @@ function pollJob(jobId) {
       console.error('Poll error:', e);
     }
   }, 3000);
+}
+
+// ── Save As ─────────────────────────────────────────────────────────────────
+async function saveReportAs(fileUrl, suggestedName) {
+  try {
+    const btn = $('saveAsBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) throw new Error('Could not fetch report file');
+    const blob = await response.blob();
+
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggestedName,
+        types: [{
+          description: 'Excel Workbook',
+          accept: {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+          }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+      showSaveSuccess('File saved successfully.');
+    } else {
+      // Fallback for Firefox/Safari — standard browser download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggestedName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+    }
+  } catch (e) {
+    const btn = $('saveAsBtn');
+    if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+    if (e.name !== 'AbortError') {
+      alert('Could not save file: ' + e.message);
+    }
+  }
+}
+
+function showSaveSuccess(msg) {
+  const el = $('saveSuccessMsg');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
 }
 
 // ── UI helpers ──────────────────────────────────────────────────────────────
