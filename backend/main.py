@@ -18,4 +18,4 @@ app.include_router(qbo_router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "acorn-lite"}
+    return {"status": "ok", "service": "acorn"}
