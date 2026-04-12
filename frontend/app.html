@@ -442,7 +442,7 @@ function pollJob(jobId) {
             const wrapper = document.createElement('div');
             wrapper.style.marginTop = '16px';
             wrapper.innerHTML =
-              '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">\ud83d\udcbe Save As</button>' +
+              '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">Save Report As</button>' +
               '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>';
             banner.appendChild(wrapper);
 
@@ -484,7 +484,7 @@ async function saveReportAs(fileUrl, suggestedName) {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
       showSaveSuccess('File saved successfully.');
     } else {
       // Fallback for Firefox/Safari — standard browser download
@@ -496,11 +496,11 @@ async function saveReportAs(fileUrl, suggestedName) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     }
   } catch (e) {
     const btn = $('saveAsBtn');
-    if (btn) { btn.disabled = false; btn.textContent = '\ud83d\udcbe Save As'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     if (e.name !== 'AbortError') {
       alert('Could not save file: ' + e.message);
     }

@@ -1,9 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <!-- Acorn cap -->
-  <ellipse cx="16" cy="11" rx="11" ry="5" fill="#8B6914"/>
-  <rect x="14" y="8" width="4" height="6" fill="#6B4F10" rx="1"/>
+  <ellipse cx="50" cy="35" rx="35" ry="14" fill="#6B4A1E"/>
+  <!-- Cap texture lines -->
+  <ellipse cx="50" cy="35" rx="28" ry="10" fill="none" stroke="#8B6330" stroke-width="2"/>
+  <ellipse cx="50" cy="35" rx="20" ry="7" fill="none" stroke="#8B6330" stroke-width="1.5"/>
+  <!-- Stem -->
+  <rect x="45" y="22" width="10" height="12" rx="3" fill="#4A3210"/>
   <!-- Acorn body -->
-  <ellipse cx="16" cy="21" rx="8" ry="10" fill="#C97D60"/>
-  <!-- Shine -->
-  <ellipse cx="13" cy="17" rx="2.5" ry="3.5" fill="rgba(255,255,255,0.15)" transform="rotate(-15 13 17)"/>
+  <path d="M 20 45 Q 20 85 50 90 Q 80 85 80 45 Z" fill="#C17F3E"/>
+  <!-- Body shine -->
+  <path d="M 30 50 Q 28 68 35 78" stroke="rgba(255,255,255,0.2)" stroke-width="4" fill="none" stroke-linecap="round"/>
 </svg>
