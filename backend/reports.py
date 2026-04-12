@@ -56,17 +56,62 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         tokens = token_result.data[0]
         company_name = tokens.get("company_name", realm_id)
+        access_token  = tokens["access_token"]
+        refresh_token = tokens["refresh_token"]
 
-        # Set env vars in the format token_manager.py expects:
-        #   QBO_{ALIAS}_REALM_ID, QBO_{ALIAS}_ACCESS_TOKEN, etc.
-        # Use realm_id as the alias — _sanitize() will uppercase it
+        # Check if access token is expired and refresh if needed
         import re as _re
-        sanitized = _re.sub(r"[^A-Z0-9]", "_", realm_id.upper())
-        os.environ[f"QBO_{sanitized}_REALM_ID"]      = realm_id
-        os.environ[f"QBO_{sanitized}_ACCESS_TOKEN"]   = tokens["access_token"]
-        os.environ[f"QBO_{sanitized}_REFRESH_TOKEN"]  = tokens["refresh_token"]
-        os.environ[f"QBO_{sanitized}_TOKEN_EXPIRY"]   = tokens.get("expires_at", "")
-        os.environ["QBO_ENVIRONMENT"] = "production"
+        from datetime import datetime, timedelta
+        expires_at_str = tokens.get("expires_at", "")
+        if expires_at_str:
+            try:
+                expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+                if datetime.utcnow().replace(tzinfo=expires_at.tzinfo) >= expires_at - timedelta(minutes=5):
+                    # Token expired or near expiry — refresh it
+                    import base64, httpx
+                    client_id = os.getenv("QBO_CLIENT_ID", "")
+                    client_secret = os.getenv("QBO_CLIENT_SECRET", "")
+                    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+                    refresh_resp = httpx.post(
+                        "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+                        headers={
+                            "Authorization": f"Basic {credentials}",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Accept": "application/json",
+                        },
+                        data={
+                            "grant_type": "refresh_token",
+                            "refresh_token": refresh_token,
+                        },
+                        timeout=30,
+                    )
+                    if refresh_resp.status_code == 200:
+                        new_tokens = refresh_resp.json()
+                        access_token  = new_tokens["access_token"]
+                        refresh_token = new_tokens.get("refresh_token", refresh_token)
+                        new_expiry = (datetime.utcnow() + timedelta(seconds=new_tokens.get("expires_in", 3600))).isoformat()
+                        # Update Supabase with refreshed tokens
+                        supabase.table("qbo_tokens").update({
+                            "access_token":  access_token,
+                            "refresh_token": refresh_token,
+                            "expires_at":    new_expiry,
+                        }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
+            except Exception:
+                pass  # proceed with existing token
+
+        # Monkey-patch token_manager.get_company_tokens to return Supabase tokens
+        # This bypasses all local .env/file-based token lookups
+        import token_manager
+        _supabase_tokens = {"realm_id": realm_id, "access_token": access_token}
+        _original_get_tokens = token_manager.get_company_tokens
+
+        def _patched_get_tokens(alias):
+            return _supabase_tokens
+
+        token_manager.get_company_tokens = _patched_get_tokens
+
+        # Also ensure get_environment returns production
+        token_manager.get_environment = lambda: "production"
 
         # Clean company name for filename
         clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
@@ -112,6 +157,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
     except Exception as e:
         update_job(job_id, status="failed", error=str(e))
+    finally:
+        # Restore original token_manager functions
+        try:
+            token_manager.get_company_tokens = _original_get_tokens
+        except Exception:
+            pass
 
 
 @router.post("/generate")
