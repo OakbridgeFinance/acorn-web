@@ -17,6 +17,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.auth import router as auth_router
+from backend.qbo_oauth import router as qbo_router
+from backend.reports import router as reports_router
+
+app.include_router(auth_router)
+app.include_router(qbo_router)
+app.include_router(reports_router)
+
 FRONTEND = Path(__file__).parent.parent / "frontend"
 logger.info(f"Frontend path: {FRONTEND}")
 logger.info(f"Frontend exists: {FRONTEND.exists()}")
@@ -25,18 +33,12 @@ logger.info(f"Frontend exists: {FRONTEND.exists()}")
 def health():
     return {"status": "ok", "service": "acorn"}
 
-@app.get("/test")
-def test():
-    return {"test": "working", "frontend_exists": str(FRONTEND.exists())}
-
 @app.get("/")
 def root():
-    logger.info("Root route hit")
     return RedirectResponse(url="/login.html")
 
 @app.get("/login.html")
 def login_page():
-    logger.info(f"Login page requested, file exists: {(FRONTEND / 'login.html').exists()}")
     return FileResponse(FRONTEND / "login.html")
 
 @app.get("/app.html")
