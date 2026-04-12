@@ -99,19 +99,24 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             except Exception:
                 pass  # proceed with existing token
 
-        # Monkey-patch token_manager.get_company_tokens to return Supabase tokens
-        # This bypasses all local .env/file-based token lookups
+        # Monkey-patch BOTH token_manager and qbo_client to return Supabase tokens.
+        # qbo_client does "from token_manager import get_company_tokens" which creates
+        # a local reference — patching token_manager alone doesn't affect it.
         import token_manager
+        import qbo_client
         _supabase_tokens = {"realm_id": realm_id, "access_token": access_token}
-        _original_get_tokens = token_manager.get_company_tokens
+        _original_tm = token_manager.get_company_tokens
+        _original_qc = qbo_client.get_company_tokens
+        _original_env_tm = token_manager.get_environment
+        _original_env_qc = qbo_client.get_environment
 
         def _patched_get_tokens(alias):
             return _supabase_tokens
 
         token_manager.get_company_tokens = _patched_get_tokens
-
-        # Also ensure get_environment returns production
+        qbo_client.get_company_tokens = _patched_get_tokens
         token_manager.get_environment = lambda: "production"
+        qbo_client.get_environment = lambda: "production"
 
         # Clean company name for filename
         clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
@@ -158,9 +163,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
     except Exception as e:
         update_job(job_id, status="failed", error=str(e))
     finally:
-        # Restore original token_manager functions
+        # Restore original functions
         try:
-            token_manager.get_company_tokens = _original_get_tokens
+            token_manager.get_company_tokens = _original_tm
+            qbo_client.get_company_tokens = _original_qc
+            token_manager.get_environment = _original_env_tm
+            qbo_client.get_environment = _original_env_qc
         except Exception:
             pass
 
