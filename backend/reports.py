@@ -407,5 +407,4 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
 @router.get("/history")
 def job_history(user=Depends(get_current_user)):
     """Get recent jobs for the current user."""
-    return {"jobs": get_user_jobs(str(user.id))}#   r e b u i l d  
- 
+    return {"jobs": get_user_jobs(str(user.id))}# rebuild
