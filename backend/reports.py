@@ -46,42 +46,47 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         logger.info(f"company_name from tokens: '{company_name}'")
         access_token  = tokens["access_token"]
         refresh_token = tokens["refresh_token"]
-        import re as _re
         from datetime import datetime, timedelta
-        expires_at_str = tokens.get("expires_at", "")
-        if expires_at_str:
-            try:
-                expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
-                if datetime.utcnow().replace(tzinfo=expires_at.tzinfo) >= expires_at - timedelta(minutes=5):
-                    import base64, httpx
-                    client_id = os.getenv("QBO_CLIENT_ID", "")
-                    client_secret = os.getenv("QBO_CLIENT_SECRET", "")
-                    credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-                    refresh_resp = httpx.post(
-                        "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
-                        headers={
-                            "Authorization": f"Basic {credentials}",
-                            "Content-Type": "application/x-www-form-urlencoded",
-                            "Accept": "application/json",
-                        },
-                        data={
-                            "grant_type": "refresh_token",
-                            "refresh_token": refresh_token,
-                        },
-                        timeout=30,
-                    )
-                    if refresh_resp.status_code == 200:
-                        new_tokens = refresh_resp.json()
-                        access_token  = new_tokens["access_token"]
-                        refresh_token = new_tokens.get("refresh_token", refresh_token)
-                        new_expiry = (datetime.utcnow() + timedelta(seconds=new_tokens.get("expires_in", 3600))).isoformat()
-                        supabase.table("qbo_tokens").update({
-                            "access_token":  access_token,
-                            "refresh_token": refresh_token,
-                            "expires_at":    new_expiry,
-                        }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
-            except Exception:
-                pass
+        import re as _re
+
+        # Always refresh QBO token before running — don't rely on expires_at
+        try:
+            import base64, httpx as _httpx
+            client_id     = os.getenv("QBO_CLIENT_ID", "")
+            client_secret = os.getenv("QBO_CLIENT_SECRET", "")
+            credentials   = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+            refresh_resp  = _httpx.post(
+                "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "Content-Type":  "application/x-www-form-urlencoded",
+                    "Accept":        "application/json",
+                },
+                data={
+                    "grant_type":    "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+                timeout=30,
+            )
+            if refresh_resp.status_code == 200:
+                new_tokens    = refresh_resp.json()
+                access_token  = new_tokens["access_token"]
+                refresh_token = new_tokens.get("refresh_token", refresh_token)
+                new_expiry    = (datetime.utcnow() + timedelta(
+                    seconds=new_tokens.get("expires_in", 3600)
+                )).isoformat()
+                supabase.table("qbo_tokens").update({
+                    "access_token":  access_token,
+                    "refresh_token": refresh_token,
+                    "expires_at":    new_expiry,
+                    "updated_at":    datetime.utcnow().isoformat(),
+                }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
+                logger.info(f"QBO token refreshed successfully")
+            else:
+                logger.warning(f"QBO token refresh failed: {refresh_resp.status_code} — proceeding with existing token")
+        except Exception as _re_err:
+            logger.warning(f"QBO token refresh error: {_re_err} — proceeding with existing token")
+
         import qbo_client
         logger.info(f"Setting override tokens for realm_id={realm_id}, access_token starts with: {access_token[:20]}")
         qbo_client.set_override_tokens({
