@@ -697,15 +697,12 @@ def _fetch_bs_balances(
         if amount_col is None:
             continue
 
-        # Truncate at GrandTotal — anything after is outside normal BS structure
+        # Truncate at GrandTotal — stop before it, exclude everything after
         grand_total_idx = df[df["Row_Type"] == "GrandTotal"].index
         if len(grand_total_idx) > 0:
             df = df.loc[:grand_total_idx[0]]
-        # Include ALL row types (Data, Section, Header, SubHeader) — parent accounts
-        # like "15200 Leasehold Improvements" come back as Header/SubHeader rows
-        # but carry real balances. Filter on non-empty account name instead.
-        data_rows = df[df["Row_Type"] != "GrandTotal"].copy()
-        data_rows = data_rows[data_rows["Row_Type"].notna()].copy()
+            df = df[df["Row_Type"] != "GrandTotal"]
+        data_rows = df[df["Row_Type"].notna()].copy()
         import re as _re_bs
         for _, r in data_rows.iterrows():
             acct = str(r.get("Account", "")).strip()
@@ -823,17 +820,14 @@ def _fetch_monthly_reports(
                 continue
             bs_num_cols = [c for c in bs_df.columns if c not in meta_cols]
 
-            found_grand_total = False
             for _, row in bs_df.iterrows():
                 acct     = str(row.get("Account", "") or "").strip()
                 indent   = int(row.get("Indent_Level", 0) or 0)
                 row_type = str(row.get("Row_Type", "") or "")
+                if row_type == "GrandTotal":
+                    break
                 if not acct:
                     continue
-                if found_grand_total:
-                    continue
-                if row_type == "GrandTotal":
-                    found_grand_total = True
                 amount = 0.0
                 for c in reversed(bs_num_cols):
                     v = safe_float(row.get(c))
