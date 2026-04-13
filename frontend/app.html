@@ -782,7 +782,7 @@ const _IS_ACCOUNT_TYPES = new Set(['Income', 'Cost of Goods Sold', 'Expense', 'O
 const _BS_ACCOUNT_TYPES = new Set(['Bank', 'Accounts Receivable', 'Other Current Asset', 'Fixed Asset', 'Other Asset',
   'Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability', 'Equity']);
 
-let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, activityTotals: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
+let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
 let _mapsSelectedAccounts = new Set();
 
 function _getRealmId() { return state.realmId; }
@@ -794,7 +794,7 @@ function showMappingPage() {
   const c = state.companies.find(c => c.realm_id === state.realmId);
   if ($('mapsBackLabel') && c) $('mapsBackLabel').textContent = c.company_name;
   if ($('mapsClientSub') && c) $('mapsClientSub').textContent = c.company_name + '  \u00b7  Account Maps';
-  mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, activityTotals: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
+  mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
   mapsLoadList();
 }
 
@@ -892,7 +892,6 @@ function mapsOpenEditor() {
   if ($('mapsFilterStart')) $('mapsFilterStart').value = e.filter_start || defaultStart;
   if ($('mapsFilterEnd')) $('mapsFilterEnd').value = e.filter_end || defaultEnd;
   mapsState.filteredAccounts = null;
-  mapsState.activityTotals = null;
   mapsState.indentLevels = null;
   mapsState.statement = 'IS';
   _mapsInitResize();
@@ -978,21 +977,6 @@ function mapsSetStatement(stmt) {
   mapsRenderAll();
 }
 
-function _getAcctTotal(name, displayName) {
-  const t = mapsState.activityTotals;
-  if (!t || Object.keys(t).length === 0) return 0;
-  if (t[name] !== undefined) return t[name];
-  if (t[displayName] !== undefined) return t[displayName];
-  const bare = (displayName || '').replace(/^\d[\d.\-]*\s+/, '').trim();
-  if (bare && t[bare] !== undefined) return t[bare];
-  const nameLower = (name || '').toLowerCase();
-  for (const [key, val] of Object.entries(t)) {
-    if (key.toLowerCase() === nameLower) return val;
-    const keyBare = key.replace(/^\d[\d.\-]*\s+/, '').trim().toLowerCase();
-    if (keyBare === nameLower) return val;
-  }
-  return 0;
-}
 
 function mapsRenderAccounts() {
   const list = $('mapsAccountList');
@@ -1025,7 +1009,6 @@ function mapsRenderAccounts() {
       return assigned.has(dn);
     });
   }
-  const hasActivity = mapsState.activityTotals != null;
   const hasIndents = mapsState.indentLevels != null;
   accts.forEach((a, i) => {
     const myIndent = hasIndents ? (mapsState.indentLevels[a.name] || 0) : 0;
@@ -1049,8 +1032,6 @@ function mapsRenderAccounts() {
       : 0;
     const indentPx = indent * 16;
     const isParent = !!a._isParent;
-    const amt = hasActivity ? Math.abs(_getAcctTotal(name, displayName)) : null;
-    const amtFmt = amt != null ? (amt >= 1 ? '$' + Math.round(amt).toLocaleString() : '\u2014') : '';
     return `<div class="${cls}" ${draggable}
                  onclick="mapsAccountClick(event, '${escHtml(displayName)}')"
                  ondragstart="mapsDragStartMulti(event, '${escHtml(name)}', '${escHtml(displayName)}')"
@@ -1058,14 +1039,8 @@ function mapsRenderAccounts() {
                  style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
       <span class="maps-acct-type">${escHtml(a.type || '')}</span>
       <span class="maps-acct-name" style="font-weight:${isParent ? '600' : '400'};color:${isParent ? 'var(--text)' : 'var(--text-light)'};">${escHtml(displayName)}</span>
-      <span class="maps-acct-activity">${amtFmt}</span>
     </div>`;
   }).join('');
-  // Add hint when no totals loaded
-  if (!hasActivity) {
-    list.insertAdjacentHTML('afterbegin',
-      '<div style="font-size:11px;color:var(--text-light);padding:6px 8px;font-style:italic">Set date range above and click Apply to show activity amounts</div>');
-  }
   const fc = $('mapsFilterCount');
   if (fc) {
     const total = mapsState.allAccounts.length;
@@ -1272,31 +1247,13 @@ function mapsRemoveAcct(gi, ai) { mapsState.groups[gi].accounts.splice(ai, 1); m
 async function mapsApplyFilter() {
   const start = val('mapsFilterStart');
   const end = val('mapsFilterEnd');
-  const realmId = _getRealmId();
   if (!start || !end) {
-    mapsState.activityTotals = null;
     mapsRenderAll();
     return;
   }
   if (mapsState.editing) {
     mapsState.editing.filter_start = start;
     mapsState.editing.filter_end = end;
-  }
-  const fc = $('mapsFilterCount');
-  if (fc) fc.textContent = 'Fetching activity totals...';
-  if (realmId) {
-    try {
-      const res = await fetch(
-        API + '/api/mapping/totals/' + realmId + '?start_date=' + start + '&end_date=' + end,
-        { headers: authHeaders() }
-      );
-      const data = await res.json();
-      mapsState.activityTotals = data.totals || {};
-      console.log('Totals fetched:', Object.keys(mapsState.activityTotals).length, 'accounts');
-      console.log('Sample keys:', Object.keys(mapsState.activityTotals).slice(0, 5));
-    } catch (e) {
-      mapsState.activityTotals = {};
-    }
   }
   mapsRenderAll();
 }
