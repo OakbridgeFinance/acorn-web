@@ -308,20 +308,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if not formula or not isinstance(formula, str) or not formula.startswith("="):
                                     continue
                                 original = formula
-                                # Replace P&L column range references
+                                # Only replace the LAST 'P&L'!X:X reference (return array)
+                                # The lookup array 'P&L'!A:A must stay unchanged
                                 if new_pl_total_col and "'P&L'!" in formula:
-                                    formula = _re_map.sub(
-                                        r"'P&L'!([A-Z]+):([A-Z]+)",
-                                        f"'P&L'!{new_pl_total_col}:{new_pl_total_col}",
-                                        formula
-                                    )
-                                # Replace Balance Sheet column range references
+                                    pl_refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", formula))
+                                    if pl_refs:
+                                        last_ref = pl_refs[-1]
+                                        formula = formula[:last_ref.start()] + f"'P&L'!{new_pl_total_col}:{new_pl_total_col}" + formula[last_ref.end():]
+                                # Only replace the LAST 'Balance Sheet'!X:X reference
                                 if new_bs_last_col and "'Balance Sheet'!" in formula:
-                                    formula = _re_map.sub(
-                                        r"'Balance Sheet'!([A-Z]+):([A-Z]+)",
-                                        f"'Balance Sheet'!{new_bs_last_col}:{new_bs_last_col}",
-                                        formula
-                                    )
+                                    bs_refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", formula))
+                                    if bs_refs:
+                                        last_ref = bs_refs[-1]
+                                        formula = formula[:last_ref.start()] + f"'Balance Sheet'!{new_bs_last_col}:{new_bs_last_col}" + formula[last_ref.end():]
                                 if formula != original:
                                     cell.value = formula
                                     patched += 1
