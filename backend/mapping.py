@@ -87,6 +87,34 @@ async def get_coa(realm_id: str, user=Depends(get_current_user)):
     return {"accounts": formatted}
 
 
+@router.get("/debug/{realm_id}")
+def debug_mapping(realm_id: str, user=Depends(get_current_user)):
+    """Temporary debug — show raw mapping structure."""
+    supabase = get_supabase()
+    result = supabase.table("mappings").select("account_maps").eq(
+        "user_id", str(user.id)
+    ).eq("realm_id", realm_id).execute()
+    if not result.data:
+        return {"error": "no data"}
+    account_maps = result.data[0]["account_maps"]
+    debug = []
+    for m in account_maps:
+        map_info = {
+            "map_name": m.get("map_name"),
+            "group_count": len(m.get("groups", [])),
+            "groups": []
+        }
+        for g in m.get("groups", []):
+            group_info = {
+                "group_name": g.get("group_name"),
+                "account_count": len(g.get("accounts", [])),
+                "sample_accounts": g.get("accounts", [])[:3]
+            }
+            map_info["groups"].append(group_info)
+        debug.append(map_info)
+    return {"debug": debug}
+
+
 @router.get("/{realm_id}")
 def get_mapping(realm_id: str, user=Depends(get_current_user)):
     """Get account mapping config for a company."""
