@@ -9,7 +9,7 @@ import httpx
 import base64
 import urllib.parse
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from backend.auth import get_current_user
 from supabase import create_client
@@ -141,3 +141,52 @@ def remove_company(realm_id: str, user=Depends(get_current_user)):
         "user_id", str(user.id)
     ).eq("realm_id", realm_id).execute()
     return {"removed": True}
+
+
+@router.post("/refresh-token/{realm_id}")
+async def refresh_qbo_token(realm_id: str, user=Depends(get_current_user)):
+    """Refresh the QBO access token for a company using the stored refresh token."""
+    supabase = get_supabase()
+    result = supabase.table("qbo_tokens").select(
+        "refresh_token"
+    ).eq("user_id", str(user.id)).eq("realm_id", realm_id).execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="No QBO connection found")
+
+    refresh_token = result.data[0]["refresh_token"]
+    client_id     = os.getenv("QBO_CLIENT_ID", "")
+    client_secret = os.getenv("QBO_CLIENT_SECRET", "")
+    credentials   = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+            headers={
+                "Authorization": f"Basic {credentials}",
+                "Content-Type":  "application/x-www-form-urlencoded",
+                "Accept":        "application/json",
+            },
+            data={
+                "grant_type":    "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            timeout=30,
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"QBO token refresh failed: {resp.text}")
+
+    new_tokens = resp.json()
+    new_access  = new_tokens["access_token"]
+    new_refresh = new_tokens.get("refresh_token", refresh_token)
+    new_expiry  = (datetime.utcnow() + timedelta(seconds=new_tokens.get("expires_in", 3600))).isoformat()
+
+    supabase.table("qbo_tokens").update({
+        "access_token":  new_access,
+        "refresh_token": new_refresh,
+        "expires_at":    new_expiry,
+        "updated_at":    datetime.utcnow().isoformat(),
+    }).eq("user_id", str(user.id)).eq("realm_id", realm_id).execute()
+
+    return {"refreshed": True, "expires_at": new_expiry}

@@ -489,23 +489,18 @@ async function connectQBO() {
 }
 
 async function reconnectQBO() {
+  const realmId = state.realmId;
+  if (!realmId) return;
+
   const btn = $('refreshConInline');
   if (btn) { btn.textContent = 'Refreshing...'; btn.disabled = true; }
 
   try {
-    const refreshToken = localStorage.getItem('acorn_refresh_token');
-    if (!refreshToken) throw new Error('No refresh token');
-
-    const res = await fetch(API + '/api/auth/refresh', {
+    const res = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      headers: authHeaders(),
     });
-    if (!res.ok) throw new Error('Refresh failed');
-
-    const data = await res.json();
-    localStorage.setItem('acorn_access_token', data.access_token);
-    localStorage.setItem('acorn_refresh_token', data.refresh_token);
+    if (!res.ok) throw new Error('QBO token refresh failed');
 
     if (btn) {
       btn.textContent = '\u2713 Refreshed';
@@ -515,7 +510,7 @@ async function reconnectQBO() {
     await loadCompanies();
   } catch (e) {
     if (btn) {
-      btn.textContent = 'Failed \u2014 try again';
+      btn.textContent = 'Failed \u2014 reconnect via QBO';
       btn.style.color = '#EF4444';
       setTimeout(() => { btn.textContent = 'Refresh Connection'; btn.style.color = ''; btn.disabled = false; }, 3000);
     }
