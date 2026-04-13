@@ -153,9 +153,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         SEC_FILL    = PatternFill("solid", fgColor="D9E1F2")
                         SUBTOT_FILL = PatternFill("solid", fgColor="EEF2F7")
                         NUM_FMT     = "#,##0.00"
-                        RED_FONT    = Font(bold=True, color="9C0006")
+                        RED_FONT    = Font(bold=True)
                         RED_FILL    = PatternFill("solid", fgColor="FFC7CE")
-                        GRN_FONT    = Font(bold=True, color="276221")
+                        GRN_FONT    = Font(bold=True)
                         GRN_FILL    = PatternFill("solid", fgColor="C6EFCE")
                         LINK_FONT   = Font(color="276221")
 
@@ -270,8 +270,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # IS groups from mapping definition, sorted by section
                             IS_ORDER = ["Revenue", "COS", "Cost of Goods Sold",
-                                        "Operating Expenses", "Other Income",
-                                        "Other Expense", "Other"]
+                                        "Sales & Marketing", "Operating Expenses",
+                                        "Other Income", "Other Expense", "Other"]
                             is_groups = []
                             seen_ig   = set()
                             for grp in m.get("groups", []):
@@ -306,7 +306,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # Aggregate by section — one row per P&L section
                             INCOME_SECS  = {"Revenue", "Other Income"}
-                            EXPENSE_SECS = {"COS", "Cost of Goods Sold", "Sales & Marketing", "Operating Expenses", "Other Expense"}
+                            EXPENSE_SECS = {"COS", "Cost of Goods Sold", "Sales & Marketing", "Operating Expenses", "Other Expense", "Other"}
 
                             section_order = []
                             seen_secs = set()
@@ -314,6 +314,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if sec and sec not in seen_secs:
                                     seen_secs.add(sec)
                                     section_order.append(sec)
+                            section_order.sort(key=lambda s: IS_ORDER.index(s) if s in IS_ORDER else 99)
 
                             data_rows = []  # [(row_number, section_name)]
                             for sec in section_order:
@@ -401,13 +402,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         break
                             cr += 1
 
-                            # Difference row
+                            # Difference row — black font, conditional fill only
                             diff_row = cr
-                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = BOLD
+                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
                             for ci in range(3, tot_col + 1):
                                 cl = get_column_letter(ci)
-                                ws_sum.cell(cr, ci,
-                                    f"={cl}{ni_row}-{cl}{qbo_ni_row}").number_format = NUM_FMT
+                                c = ws_sum.cell(cr, ci, f"={cl}{ni_row}-{cl}{qbo_ni_row}")
+                                c.number_format = NUM_FMT
+                                c.font = Font()
                             dr = f"C{diff_row}:{get_column_letter(tot_col)}{diff_row}"
                             ws_sum.conditional_formatting.add(dr,
                                 CellIsRule(operator="notEqual", formula=["0"],
@@ -565,12 +567,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     c.font = LINK_FONT
                                 cr += 1
 
-                                # Difference row
+                                # Difference row — black font, conditional fill only
                                 diff_row = cr
-                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = BOLD
+                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
                                 for ci in range(3, num_bs_mo + 3):
                                     cl = get_column_letter(ci)
-                                    ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}").number_format = NUM_FMT
+                                    c = ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}")
+                                    c.number_format = NUM_FMT
+                                    c.font = Font()
                                 dr = f"C{diff_row}:{get_column_letter(num_bs_mo + 2)}{diff_row}"
                                 ws_sum.conditional_formatting.add(dr,
                                     CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
