@@ -37,9 +37,6 @@
     <div class="sidebar-refresh">
       <button class="refresh-btn" id="refreshConBtn" onclick="refreshConnections()" title="Refresh connections">&#8635; Refresh Connections</button>
     </div>
-    <div class="sidebar-refresh" style="border-top:1px solid rgba(255,255,255,0.07); padding-top:10px;">
-      <button class="refresh-btn" onclick="showMappingPage()" title="Account Mapping">Account Mapping</button>
-    </div>
     <div class="sidebar-signout">
       <button class="signout-btn" onclick="signOut()">Sign Out</button>
     </div>
@@ -57,7 +54,8 @@
             </svg>
             Back
           </button>
-          <h1 class="page-title" id="litePageTitle">Select a Company</h1>
+          <h1 class="page-title" id="litePageTitle" style="display:inline;">Select a Company</h1>
+          <button id="refreshConInline" class="btn-outline btn-sm" onclick="reconnectQBO()" style="display:none;margin-left:12px;vertical-align:middle;">Refresh Connection</button>
         </div>
       </div>
 
@@ -434,12 +432,17 @@ async function removeConnection(realmId) {
 function selectClient(realmId, companyName) {
   state.realmId = realmId;
   renderClientList();
+  refreshTokenIfNeeded();
 
   // Always navigate to extraction page when switching clients
   showReportPage();
 
   const title = $('litePageTitle');
   if (title) title.textContent = companyName;
+
+  // Show refresh connection button
+  const rcBtn = $('refreshConInline');
+  if (rcBtn) rcBtn.style.display = '';
 
   // Show report form, hide landing
   const landing = $('liteLanding');
@@ -466,6 +469,8 @@ function goBack() {
 
   const title = $('litePageTitle');
   if (title) title.textContent = 'Select a Company';
+  const rcBtn = $('refreshConInline');
+  if (rcBtn) rcBtn.style.display = 'none';
 }
 
 // ── QBO OAuth ───────────────────────────────────────────────────────────────
@@ -480,6 +485,20 @@ async function connectQBO() {
     }
   } catch(e) {
     alert('Failed to start QBO connection: ' + e.message);
+  }
+}
+
+async function reconnectQBO() {
+  try {
+    const res = await fetch(API + '/api/qbo/auth-url?user_id=' + getUserId(), {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (data.auth_url) {
+      window.location.href = data.auth_url;
+    }
+  } catch(e) {
+    alert('Failed to refresh connection: ' + e.message);
   }
 }
 
@@ -1427,6 +1446,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.history.replaceState({}, '', 'app.html');
   }
 
+  refreshTokenIfNeeded();
   loadCompanies();
 
   // Date validation listeners
