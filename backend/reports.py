@@ -157,6 +157,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         RED_FILL    = PatternFill("solid", fgColor="FFC7CE")
                         GRN_FONT    = Font(bold=True, color="276221")
                         GRN_FILL    = PatternFill("solid", fgColor="C6EFCE")
+                        LINK_FONT   = Font(color="276221")
 
                         def build_lookup(m):
                             out = {}
@@ -333,13 +334,25 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     f"=SUM({sl}{cr}:{el}{cr})").number_format = NUM_FMT
                                 cr += 1
 
-                            # Net Income
+                            # Net Income = Income sections - Expense sections
+                            INCOME_SECS  = {"Revenue", "Other Income"}
+                            EXPENSE_SECS = {"COS", "Cost of Goods Sold", "Sales & Marketing", "Operating Expenses", "Other Expense"}
+                            income_rows  = []
+                            expense_rows = []
+                            for i, (gname, sec) in enumerate(is_groups):
+                                if sec in INCOME_SECS:
+                                    income_rows.append(data_rows[i])
+                                else:
+                                    expense_rows.append(data_rows[i])
+
                             ni_row = cr
                             ws_sum.cell(cr, 1, "Net Income").font = BOLD
                             for ci in range(3, tot_col + 1):
-                                cl   = get_column_letter(ci)
-                                refs = "+".join(f"{cl}{r}" for r in data_rows) if data_rows else "0"
-                                c = ws_sum.cell(cr, ci, f"={refs}")
+                                cl       = get_column_letter(ci)
+                                inc_part = "+".join(f"{cl}{r}" for r in income_rows)  or "0"
+                                exp_part = "+".join(f"{cl}{r}" for r in expense_rows) or "0"
+                                formula  = f"={inc_part}-({exp_part})" if expense_rows else f"={inc_part}"
+                                c = ws_sum.cell(cr, ci, formula)
                                 c.number_format = NUM_FMT
                                 c.font = BOLD
                             cr += 1
@@ -362,14 +375,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                                     c = ws_sum.cell(cr, ci,
                                                         f"='P&L'!{get_column_letter(pci+1)}{pri}")
                                                     c.number_format = NUM_FMT
-                                                    c.font = Font(italic=True)
+                                                    c.font = LINK_FONT
                                                     break
                                         try:
                                             ptc = pl_hdr.index("Total") + 1
                                             c = ws_sum.cell(cr, tot_col,
                                                 f"='P&L'!{get_column_letter(ptc)}{pri}")
                                             c.number_format = NUM_FMT
-                                            c.font = Font(italic=True)
+                                            c.font = LINK_FONT
                                         except ValueError:
                                             pass
                                         break
@@ -509,6 +522,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 cr += 1
 
                             # Section subtotals (written after all groups)
+                            sec_subtotal_rows = {}
                             for sec, rows in sec_rows.items():
                                 if not rows:
                                     continue
@@ -523,9 +537,60 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     c.number_format = NUM_FMT
                                     c.font = BOLD
                                     c.fill = SUBTOT_FILL
+                                sec_subtotal_rows[sec] = cr
                                 cr += 1
 
-                            cr += 1  # spacer between maps
+                            # BS validation: Total Assets, Total Liabilities, Total Equity, Check
+                            ASSET_SECS  = {"Current Assets", "Fixed Assets", "Other Assets"}
+                            LIAB_SECS   = {"Current Liabilities", "Long-term Liabilities"}
+                            EQUITY_SECS = {"Equity"}
+
+                            cr += 1  # spacer
+
+                            ta_row = cr
+                            ws_sum.cell(cr, 1, "Total Assets").font = BOLD
+                            asset_refs = [r for s, r in sec_subtotal_rows.items() if s in ASSET_SECS]
+                            for ci in range(3, num_bs_mo + 3):
+                                cl = get_column_letter(ci)
+                                f  = "=" + "+".join(f"{cl}{r}" for r in asset_refs) if asset_refs else "=0"
+                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 1
+
+                            tl_row = cr
+                            ws_sum.cell(cr, 1, "Total Liabilities").font = BOLD
+                            liab_refs = [r for s, r in sec_subtotal_rows.items() if s in LIAB_SECS]
+                            for ci in range(3, num_bs_mo + 3):
+                                cl = get_column_letter(ci)
+                                f  = "=" + "+".join(f"{cl}{r}" for r in liab_refs) if liab_refs else "=0"
+                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 1
+
+                            te_row = cr
+                            ws_sum.cell(cr, 1, "Total Equity").font = BOLD
+                            eq_refs = [r for s, r in sec_subtotal_rows.items() if s in EQUITY_SECS]
+                            for ci in range(3, num_bs_mo + 3):
+                                cl = get_column_letter(ci)
+                                f  = "=" + "+".join(f"{cl}{r}" for r in eq_refs) if eq_refs else "=0"
+                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 1
+
+                            check_row = cr
+                            ws_sum.cell(cr, 1, "Check: Assets - Liab - Equity (should be zero)").font = BOLD
+                            for ci in range(3, num_bs_mo + 3):
+                                cl = get_column_letter(ci)
+                                ws_sum.cell(cr, ci,
+                                    f"={cl}{ta_row}-{cl}{tl_row}-{cl}{te_row}").number_format = NUM_FMT
+                            chk_range = f"C{check_row}:{get_column_letter(num_bs_mo + 2)}{check_row}"
+                            ws_sum.conditional_formatting.add(chk_range,
+                                CellIsRule(operator="notEqual", formula=["0"],
+                                           font=RED_FONT, fill=RED_FILL))
+                            ws_sum.conditional_formatting.add(chk_range,
+                                CellIsRule(operator="equal", formula=["0"],
+                                           font=GRN_FONT, fill=GRN_FILL))
+                            cr += 2
 
                         # Column widths for Map Summary
                         ws_sum.column_dimensions["A"].width = 28
