@@ -87,6 +87,89 @@ async def get_coa(realm_id: str, user=Depends(get_current_user)):
     return {"accounts": formatted}
 
 
+@router.get("/totals/{realm_id}")
+async def get_account_totals(
+    realm_id: str,
+    start_date: str,
+    end_date: str,
+    user=Depends(get_current_user),
+):
+    """Fetch account activity totals from QBO P&L and Balance Sheet for the mapping UI."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent / "core"))
+
+    tokens = get_tokens(str(user.id), realm_id)
+    access_token = tokens["access_token"]
+
+    totals = {}
+
+    async with httpx.AsyncClient() as client:
+        # Fetch P&L totals
+        try:
+            pl_resp = await client.get(
+                f"{QBO_API_BASE}/v3/company/{realm_id}/reports/ProfitAndLoss",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                params={
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "accounting_method": "Accrual",
+                    "minorversion": "75",
+                },
+                timeout=30,
+            )
+            if pl_resp.status_code == 200:
+                from report_parser import parse_financial_statement
+                pl_df = parse_financial_statement(pl_resp.json())
+                if not pl_df.empty:
+                    meta = {"Row_Type", "Indent_Level", "Account_Path", "Account", "Account_ID"}
+                    num_cols = [c for c in pl_df.columns if c not in meta]
+                    if num_cols:
+                        first_col = num_cols[0]
+                        for _, row in pl_df.iterrows():
+                            if row.get("Row_Type") not in ("Data", "Section"):
+                                continue
+                            acct = str(row.get("Account", "") or "").strip()
+                            if acct:
+                                val = float(row.get(first_col, 0) or 0)
+                                totals[acct] = val
+        except Exception:
+            pass
+
+        # Fetch BS totals
+        try:
+            bs_resp = await client.get(
+                f"{QBO_API_BASE}/v3/company/{realm_id}/reports/BalanceSheet",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                params={
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "accounting_method": "Accrual",
+                    "minorversion": "75",
+                },
+                timeout=30,
+            )
+            if bs_resp.status_code == 200:
+                from report_parser import parse_financial_statement
+                bs_df = parse_financial_statement(bs_resp.json())
+                if not bs_df.empty:
+                    meta = {"Row_Type", "Indent_Level", "Account_Path", "Account", "Account_ID"}
+                    num_cols = [c for c in bs_df.columns if c not in meta]
+                    if num_cols:
+                        last_col = num_cols[-1]
+                        for _, row in bs_df.iterrows():
+                            if row.get("Row_Type") not in ("Data", "Section"):
+                                continue
+                            acct = str(row.get("Account", "") or "").strip()
+                            if acct:
+                                val = float(row.get(last_col, 0) or 0)
+                                totals[acct] = val
+        except Exception:
+            pass
+
+    return {"totals": totals}
+
+
 @router.get("/{realm_id}")
 def get_mapping(realm_id: str, user=Depends(get_current_user)):
     """Get account mapping config for a company."""

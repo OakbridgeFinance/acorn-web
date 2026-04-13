@@ -1039,6 +1039,11 @@ function mapsRenderAccounts() {
       <span class="maps-acct-activity">${amtFmt}</span>
     </div>`;
   }).join('');
+  // Add hint when no totals loaded
+  if (!hasActivity) {
+    list.insertAdjacentHTML('afterbegin',
+      '<div style="font-size:11px;color:var(--text-light);padding:6px 8px;font-style:italic">Set date range above and click Apply to show activity amounts</div>');
+  }
   const fc = $('mapsFilterCount');
   if (fc) {
     const total = mapsState.allAccounts.length;
@@ -1202,8 +1207,8 @@ function mapsRemoveAcct(gi, ai) { mapsState.groups[gi].accounts.splice(ai, 1); m
 async function mapsApplyFilter() {
   const start = val('mapsFilterStart');
   const end = val('mapsFilterEnd');
+  const realmId = _getRealmId();
   if (!start || !end) {
-    mapsState.filteredAccounts = null;
     mapsState.activityTotals = null;
     mapsRenderAll();
     return;
@@ -1214,7 +1219,18 @@ async function mapsApplyFilter() {
   }
   const fc = $('mapsFilterCount');
   if (fc) fc.textContent = 'Fetching activity totals...';
-  // Activity endpoint not yet implemented — just render without activity data
+  if (realmId) {
+    try {
+      const res = await fetch(
+        API + '/api/mapping/totals/' + realmId + '?start_date=' + start + '&end_date=' + end,
+        { headers: authHeaders() }
+      );
+      const data = await res.json();
+      mapsState.activityTotals = data.totals || {};
+    } catch (e) {
+      mapsState.activityTotals = {};
+    }
+  }
   mapsRenderAll();
 }
 
