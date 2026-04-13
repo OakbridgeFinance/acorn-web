@@ -113,231 +113,156 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             # ── Append mapping columns ────────────────────────────────────
             if selected_maps:
                 try:
-                    logger.info(f"selected_maps received: {selected_maps}")
+                    logger.info(f"Applying maps: {selected_maps}")
                     mapping_result = supabase.table("mappings").select("account_maps").eq(
                         "user_id", user_id
                     ).eq("realm_id", realm_id).execute()
-                    account_maps = []
-                    if mapping_result.data:
-                        account_maps = mapping_result.data[0].get("account_maps", [])
+                    account_maps = (mapping_result.data or [{}])[0].get("account_maps", []) if mapping_result.data else []
                     maps_to_apply = [m for m in account_maps if m.get("map_name", "") in selected_maps]
-                    logger.info(f"maps_to_apply: {[m.get('map_name') for m in maps_to_apply]}")
 
                     if maps_to_apply:
-                        progress_fn(f"  Applying {len(maps_to_apply)} mapping(s)...")
                         import openpyxl as _ox
                         from openpyxl.styles import Font, PatternFill, Alignment
                         from openpyxl.utils import get_column_letter
-                        from copy import copy as _copy
                         import re as _re_map
+                        from copy import copy as _copy
 
                         wb = _ox.load_workbook(file_path)
 
-                        # Hide gridlines on all tabs
                         for sn in wb.sheetnames:
                             wb[sn].sheet_view.showGridLines = False
 
-                        MAP_HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
-                        MAP_HEADER_FONT = Font(bold=True, color="FFFFFF")
-                        PLAIN_FILL  = PatternFill(fill_type=None)
-                        PLAIN_ALIGN = Alignment(horizontal="left", vertical="bottom")
+                        HDR_FONT = Font(bold=True, color="FFFFFF")
+                        HDR_FILL = PatternFill("solid", fgColor="1F4E79")
 
-                        def _build_lookup(m):
-                            lookup = {}
+                        def build_lookup(m):
+                            out = {}
                             for grp in m.get("groups", []):
-                                group_name = grp.get("group_name", "")
-                                section = grp.get("pl_section") or grp.get("bs_section") or ""
-                                for acct in grp.get("accounts", []):
-                                    acct_name = (acct.get("account_name", "") if isinstance(acct, dict) else str(acct)).strip()
-                                    if acct_name:
-                                        lookup[acct_name] = (group_name, section)
-                            return lookup
+                                gname = grp.get("group_name", "")
+                                sect  = grp.get("pl_section") or grp.get("bs_section") or ""
+                                for a in grp.get("accounts", []):
+                                    name = (a.get("account_name","") if isinstance(a,dict) else str(a)).strip()
+                                    if name:
+                                        out[name] = (gname, sect)
+                            return out
 
-                        num_maps     = len(maps_to_apply)
-                        num_new_cols = num_maps * 2
+                        n = len(maps_to_apply)
 
-                        # Log Validation formula BEFORE any changes
-                        if "Validation" in wb.sheetnames:
-                            ws_val = wb["Validation"]
-                            sample = ws_val.cell(row=9, column=4).value
-                            logger.info(f"Validation D9 BEFORE: {repr(sample)}")
-
-                        # ── IS GL Detail and BS GL Detail — append at end ─────
-                        for tab_name in ("IS GL Detail", "BS GL Detail"):
-                            if tab_name not in wb.sheetnames:
+                        # ── GL Detail tabs — append at end ──────────────────
+                        for tab in ("IS GL Detail", "BS GL Detail"):
+                            if tab not in wb.sheetnames:
                                 continue
-                            ws = wb[tab_name]
-                            if ws.max_row < 2:
+                            ws = wb[tab]
+                            hdr = [ws.cell(1, c).value for c in range(1, ws.max_column+1)]
+                            if "Account Name" not in hdr:
                                 continue
-                            header = [ws.cell(row=1, column=ci).value for ci in range(1, ws.max_column + 1)]
-                            try:
-                                acct_col_idx = header.index("Account Name") + 1
-                            except ValueError:
-                                logger.warning(f"  No 'Account Name' col in {tab_name}, header={header[:8]}")
-                                continue
-                            next_col = ws.max_column + 1
-                            for map_idx, m in enumerate(maps_to_apply):
-                                map_name = m.get("map_name", "")
-                                lookup   = _build_lookup(m)
-                                grp_col  = next_col + (map_idx * 2)
-                                sec_col  = next_col + (map_idx * 2) + 1
+                            acct_col = hdr.index("Account Name") + 1
+                            base     = ws.max_column + 1
 
-                                # Header row
-                                c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
-                                c.font = MAP_HEADER_FONT
-                                c.fill = MAP_HEADER_FILL
-                                ws.column_dimensions[get_column_letter(grp_col)].width = 24
+                            for mi, m in enumerate(maps_to_apply):
+                                lkp  = build_lookup(m)
+                                gc   = base + mi*2
+                                sc   = base + mi*2 + 1
+                                mname = m.get("map_name","")
 
-                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
-                                c.font = MAP_HEADER_FONT
-                                c.fill = MAP_HEADER_FILL
-                                ws.column_dimensions[get_column_letter(sec_col)].width = 22
+                                ws.cell(1, gc, f"{mname} - Account Group").font   = HDR_FONT
+                                ws.cell(1, gc).fill = HDR_FILL
+                                ws.cell(1, sc, f"{mname} - Statement Section").font = HDR_FONT
+                                ws.cell(1, sc).fill = HDR_FILL
+                                ws.column_dimensions[get_column_letter(gc)].width = 24
+                                ws.column_dimensions[get_column_letter(sc)].width = 22
 
-                                matched = 0
-                                for ri in range(2, ws.max_row + 1):
-                                    cell_val = ws.cell(row=ri, column=acct_col_idx).value
-                                    if not cell_val:
+                                for ri in range(2, ws.max_row+1):
+                                    v = ws.cell(ri, acct_col).value
+                                    if not v:
                                         continue
-                                    acct_name = str(cell_val).strip()
-                                    # Always set plain formatting on new columns
-                                    for col in (grp_col, sec_col):
-                                        tgt = ws.cell(row=ri, column=col)
-                                        src = ws.cell(row=ri, column=acct_col_idx)
-                                        tgt.font      = _copy(src.font)
-                                        tgt.fill      = PLAIN_FILL
-                                        tgt.alignment = PLAIN_ALIGN
-                                    match = lookup.get(acct_name)
+                                    match = lkp.get(str(v).strip())
                                     if match:
-                                        ws.cell(row=ri, column=grp_col, value=match[0])
-                                        ws.cell(row=ri, column=sec_col, value=match[1])
-                                        matched += 1
-                                logger.info(f"  {tab_name} map '{map_name}': {matched} rows matched of {ws.max_row-1}")
+                                        ws.cell(ri, gc, match[0])
+                                        ws.cell(ri, sc, match[1])
 
-                        # ── BS Balances, P&L, Balance Sheet — insert after col A ──
-                        # Record P&L Total column BEFORE inserting
-                        pl_total_col_before = None
+                        # ── P&L, Balance Sheet, BS Balances — insert after col A
+                        pl_total_before = None
                         if "P&L" in wb.sheetnames:
-                            ws_pl = wb["P&L"]
-                            pl_hdr = [ws_pl.cell(row=1, column=ci).value for ci in range(1, ws_pl.max_column + 1)]
-                            logger.info(f"P&L header before insert: {pl_hdr[:5]}...{pl_hdr[-3:]}")
-                            try:
-                                pl_total_col_before = pl_hdr.index("Total") + 1  # 1-based col number
-                                logger.info(f"P&L Total col before insert: {pl_total_col_before} ({get_column_letter(pl_total_col_before)})")
-                            except ValueError:
-                                logger.warning("P&L 'Total' column not found in header")
+                            ph = [wb["P&L"].cell(1,c).value for c in range(1, wb["P&L"].max_column+1)]
+                            if "Total" in ph:
+                                pl_total_before = ph.index("Total") + 1
 
-                        # Record BS last data column BEFORE inserting
-                        bs_last_col_before = None
+                        bs_last_before = None
                         if "Balance Sheet" in wb.sheetnames:
-                            ws_bs = wb["Balance Sheet"]
-                            bs_max = ws_bs.max_column
-                            bs_last_col_before = bs_max  # last col before insert
-                            logger.info(f"Balance Sheet max col before insert: {bs_max} ({get_column_letter(bs_max)})")
+                            bs_last_before = wb["Balance Sheet"].max_column
 
-                        for tab_name in ("BS Balances", "P&L", "Balance Sheet"):
-                            if tab_name not in wb.sheetnames:
+                        for tab in ("BS Balances", "P&L", "Balance Sheet"):
+                            if tab not in wb.sheetnames:
                                 continue
-                            ws = wb[tab_name]
-                            if ws.max_row < 2:
-                                continue
+                            ws = wb[tab]
+                            ws.insert_cols(2, n*2)
 
-                            # Insert all map columns at once after col A
-                            ws.insert_cols(2, num_new_cols)
+                            for mi, m in enumerate(maps_to_apply):
+                                lkp   = build_lookup(m)
+                                gc    = 2 + mi*2
+                                sc    = 2 + mi*2 + 1
+                                mname = m.get("map_name","")
 
-                            for map_idx, m in enumerate(maps_to_apply):
-                                map_name = m.get("map_name", "")
-                                lookup   = _build_lookup(m)
-                                grp_col  = 2 + (map_idx * 2)
-                                sec_col  = 2 + (map_idx * 2) + 1
+                                h1 = ws.cell(1,1)
+                                for col in (gc, sc):
+                                    c = ws.cell(1, col)
+                                    c.font = _copy(h1.font) if h1.has_style else HDR_FONT
+                                    c.fill = _copy(h1.fill) if h1.has_style else HDR_FILL
+                                ws.cell(1, gc, f"{mname} - Account Group")
+                                ws.cell(1, sc, f"{mname} - Statement Section")
+                                ws.column_dimensions[get_column_letter(gc)].width = 24
+                                ws.column_dimensions[get_column_letter(sc)].width = 22
 
-                                # Header
-                                c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
-                                c.font = MAP_HEADER_FONT
-                                c.fill = MAP_HEADER_FILL
-                                ws.column_dimensions[get_column_letter(grp_col)].width = 24
-
-                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
-                                c.font = MAP_HEADER_FONT
-                                c.fill = MAP_HEADER_FILL
-                                ws.column_dimensions[get_column_letter(sec_col)].width = 22
-
-                                matched = 0
-                                for ri in range(2, ws.max_row + 1):
-                                    src      = ws.cell(row=ri, column=1)
-                                    cell_val = src.value
-                                    if not cell_val:
+                                for ri in range(2, ws.max_row+1):
+                                    v = ws.cell(ri, 1).value
+                                    if not v:
                                         continue
-                                    acct_name = str(cell_val).strip()
-
-                                    # Copy font+fill from col A for consistent row formatting
-                                    for col in (grp_col, sec_col):
-                                        tgt = ws.cell(row=ri, column=col)
+                                    src = ws.cell(ri, 1)
+                                    for col in (gc, sc):
+                                        tgt = ws.cell(ri, col)
                                         if src.has_style:
                                             tgt.font = _copy(src.font)
                                             tgt.fill = _copy(src.fill)
-                                        tgt.alignment = Alignment(horizontal="left")
-
-                                    match = lookup.get(acct_name)
+                                    match = lkp.get(str(v).strip())
                                     if match:
-                                        ws.cell(row=ri, column=grp_col, value=match[0])
-                                        ws.cell(row=ri, column=sec_col, value=match[1])
-                                        matched += 1
-                                logger.info(f"  {tab_name} map '{map_name}': {matched} rows matched")
+                                        ws.cell(ri, gc, match[0])
+                                        ws.cell(ri, sc, match[1])
 
-                        # ── Patch Validation XLOOKUP formulas ────────────────────
-                        # After insert_cols, the Total col in P&L shifted right by num_new_cols
-                        # After insert_cols, the last data col in Balance Sheet shifted right by num_new_cols
-                        if "Validation" in wb.sheetnames and num_new_cols > 0:
-                            ws_val = wb["Validation"]
-
-                            # Calculate new column letters after shift
-                            new_pl_total_col = None
-                            if pl_total_col_before is not None:
-                                new_pl_total_col = get_column_letter(pl_total_col_before + num_new_cols)
-                                logger.info(f"P&L Total col after insert: {new_pl_total_col}")
-
-                            new_bs_last_col = None
-                            if bs_last_col_before is not None:
-                                new_bs_last_col = get_column_letter(bs_last_col_before + num_new_cols)
-                                logger.info(f"Balance Sheet last col after insert: {new_bs_last_col}")
-
+                        # ── Patch Validation XLOOKUP formulas ───────────────
+                        if "Validation" in wb.sheetnames:
+                            ws_v = wb["Validation"]
+                            new_pl_col = get_column_letter(pl_total_before + n*2) if pl_total_before else None
+                            new_bs_col = get_column_letter(bs_last_before  + n*2) if bs_last_before  else None
                             patched = 0
-                            for ri in range(1, ws_val.max_row + 1):
-                                cell    = ws_val.cell(row=ri, column=4)
-                                formula = cell.value
-                                if not formula or not isinstance(formula, str) or not formula.startswith("="):
+                            for ri in range(1, ws_v.max_row+1):
+                                cell = ws_v.cell(ri, 4)
+                                f    = cell.value
+                                if not f or not isinstance(f, str) or not f.startswith("="):
                                     continue
-                                original = formula
-                                # Only replace the LAST 'P&L'!X:X reference (return array)
-                                # The lookup array 'P&L'!A:A must stay unchanged
-                                if new_pl_total_col and "'P&L'!" in formula:
-                                    pl_refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", formula))
-                                    if pl_refs:
-                                        last_ref = pl_refs[-1]
-                                        formula = formula[:last_ref.start()] + f"'P&L'!{new_pl_total_col}:{new_pl_total_col}" + formula[last_ref.end():]
-                                # Only replace the LAST 'Balance Sheet'!X:X reference
-                                if new_bs_last_col and "'Balance Sheet'!" in formula:
-                                    bs_refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", formula))
-                                    if bs_refs:
-                                        last_ref = bs_refs[-1]
-                                        formula = formula[:last_ref.start()] + f"'Balance Sheet'!{new_bs_last_col}:{new_bs_last_col}" + formula[last_ref.end():]
-                                if formula != original:
-                                    cell.value = formula
+                                orig = f
+                                if new_pl_col and "'P&L'!" in f:
+                                    refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", f))
+                                    if refs:
+                                        last = refs[-1]
+                                        f = f[:last.start()] + f"'P&L'!{new_pl_col}:{new_pl_col}" + f[last.end():]
+                                if new_bs_col and "'Balance Sheet'!" in f:
+                                    refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", f))
+                                    if refs:
+                                        last = refs[-1]
+                                        f = f[:last.start()] + f"'Balance Sheet'!{new_bs_col}:{new_bs_col}" + f[last.end():]
+                                if f != orig:
+                                    cell.value = f
                                     patched += 1
-
-                            logger.info(f"Validation: patched {patched} formulas")
-                            # Log sample after patching
-                            sample = ws_val.cell(row=9, column=4).value
-                            logger.info(f"Validation D9 AFTER: {repr(sample)}")
+                            logger.info(f"Validation: patched {patched} formulas, P&L col={new_pl_col}, BS col={new_bs_col}")
 
                         wb.save(file_path)
-                        progress_fn(f"  Mapping columns appended.")
+                        progress_fn("  Mapping columns appended.")
 
                 except Exception as e:
                     import traceback
-                    logger.error(f"Mapping failed: {e}")
-                    logger.error(traceback.format_exc())
-                    progress_fn(f"  WARNING: Could not apply mappings — {e}")
+                    logger.error(f"Mapping error: {e}\n{traceback.format_exc()}")
+                    progress_fn(f"  WARNING: Mapping failed — {e}")
 
             # Upload to Supabase storage
             storage_path = f"{user_id}/{job_id}/{file_name}"
