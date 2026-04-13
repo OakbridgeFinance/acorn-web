@@ -429,10 +429,46 @@ async function removeConnection(realmId) {
   }
 }
 
+function resetExtractionUI() {
+  // Clear status banner (which contains Save/Portal buttons dynamically)
+  const banner = $('liteStatusBanner');
+  if (banner) { banner.innerHTML = ''; banner.classList.add('hidden'); }
+
+  // Reset progress
+  const bar = $('liteProgressBar');
+  if (bar) bar.style.width = '0%';
+  const title = $('liteProgressTitle');
+  if (title) title.textContent = 'Ready';
+
+  // Clear log
+  const log = $('liteLogOutput');
+  if (log) log.textContent = '';
+
+  // Reset generate button
+  const btn = $('btnLiteGenerate');
+  if (btn) btn.disabled = false;
+  const lbl = $('btnLiteLabel');
+  if (lbl) lbl.textContent = 'Generate Report';
+  const spinner = $('btnLiteSpinner');
+  if (spinner) spinner.classList.add('hidden');
+
+  // Hide stop button
+  const stopBtn = $('btnLiteStop');
+  if (stopBtn) stopBtn.style.display = 'none';
+
+  // Clear job polling
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+
+  // Clear job IDs
+  _currentJobId = null;
+  _lastCompletedJobId = null;
+}
+
 function selectClient(realmId, companyName) {
   state.realmId = realmId;
   renderClientList();
   refreshTokenIfNeeded();
+  resetExtractionUI();
 
   // Always navigate to extraction page when switching clients
   showReportPage();
