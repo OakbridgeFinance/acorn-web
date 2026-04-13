@@ -162,10 +162,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         from openpyxl.styles import Font, PatternFill, Alignment
                         from openpyxl.utils import get_column_letter
                         from copy import copy as _copy
+                        import re as _re_map
 
                         wb = _ox.load_workbook(file_path)
 
-                        # Hide gridlines on all tabs
                         for sn in wb.sheetnames:
                             wb[sn].sheet_view.showGridLines = False
 
@@ -182,6 +182,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     if acct_name:
                                         lookup[acct_name] = (group_name, section)
                             return lookup
+
+                        num_maps = len(maps_to_apply)
+                        num_new_cols = num_maps * 2
 
                         # ── IS GL Detail and BS GL Detail — append at end ────────
                         for tab_name in ("IS GL Detail", "BS GL Detail"):
@@ -217,24 +220,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
-
-                                    # Copy row formatting from col A
-                                    src = ws.cell(row=ri, column=1)
-                                    for col in (grp_col, sec_col):
-                                        tgt = ws.cell(row=ri, column=col)
-                                        if src.has_style:
-                                            tgt.font = _copy(src.font)
-                                            tgt.fill = _copy(src.fill)
-                                            tgt.border = _copy(src.border)
-                                        tgt.alignment = Alignment(horizontal="left")
-
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
 
-                        # ── BS Balances, P&L, Balance Sheet — append at END ──────
-                        # Appending preserves all formula references including
-                        # Validation XLOOKUPs and P&L/BS cross-check formulas
+                        # ── BS Balances, P&L, Balance Sheet — insert after col A ──
                         for tab_name in ("BS Balances", "P&L", "Balance Sheet"):
                             if tab_name not in wb.sheetnames:
                                 continue
@@ -242,40 +232,90 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if ws.max_row < 2:
                                 continue
 
-                            next_col = ws.max_column + 1
+                            ws.insert_cols(2, num_new_cols)
+
                             for map_idx, m in enumerate(maps_to_apply):
                                 map_name = m.get("map_name", "")
                                 lookup = _build_lookup(m)
-                                grp_col = next_col + (map_idx * 2)
-                                sec_col = next_col + (map_idx * 2) + 1
+                                grp_col = 2 + (map_idx * 2)
+                                sec_col = 2 + (map_idx * 2) + 1
 
+                                # Header — use mapping style with border from col 1
+                                src_hdr = ws.cell(row=1, column=1)
                                 c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
                                 c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
+                                if src_hdr.has_style:
+                                    c.border = _copy(src_hdr.border)
+                                    c.alignment = _copy(src_hdr.alignment)
                                 ws.column_dimensions[get_column_letter(grp_col)].width = 24
+
                                 c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
                                 c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
+                                if src_hdr.has_style:
+                                    c.border = _copy(src_hdr.border)
+                                    c.alignment = _copy(src_hdr.alignment)
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
                                 for ri in range(2, ws.max_row + 1):
-                                    cell_val = ws.cell(row=ri, column=1).value
+                                    src = ws.cell(row=ri, column=1)
+                                    cell_val = src.value
                                     if not cell_val:
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
 
-                                    # Copy row formatting from col A
-                                    src = ws.cell(row=ri, column=1)
+                                    # Copy font and fill from col A
                                     for col in (grp_col, sec_col):
                                         tgt = ws.cell(row=ri, column=col)
                                         if src.has_style:
                                             tgt.font = _copy(src.font)
                                             tgt.fill = _copy(src.fill)
-                                            tgt.border = _copy(src.border)
                                         tgt.alignment = Alignment(horizontal="left")
 
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
+
+                        # ── Patch Validation formulas after P&L/BS column shift ───
+                        if "Validation" in wb.sheetnames and num_new_cols > 0:
+                            ws_val = wb["Validation"]
+
+                            pl_total_col = None
+                            if "P&L" in wb.sheetnames:
+                                ws_pl = wb["P&L"]
+                                pl_header = [ws_pl.cell(row=1, column=ci).value for ci in range(1, ws_pl.max_column + 1)]
+                                try:
+                                    pl_total_col = get_column_letter(pl_header.index("Total") + 1)
+                                except ValueError:
+                                    pass
+
+                            bs_last_data_col = None
+                            if "Balance Sheet" in wb.sheetnames:
+                                ws_bs = wb["Balance Sheet"]
+                                for ci in range(ws_bs.max_column, 0, -1):
+                                    val = ws_bs.cell(row=1, column=ci).value or ""
+                                    if "Account Group" not in str(val) and "Statement Section" not in str(val):
+                                        bs_last_data_col = get_column_letter(ci)
+                                        break
+
+                            for ri in range(2, ws_val.max_row + 1):
+                                cell = ws_val.cell(row=ri, column=4)
+                                formula = cell.value
+                                if not formula or not isinstance(formula, str) or not formula.startswith("="):
+                                    continue
+                                if pl_total_col and "'P&L'!" in formula:
+                                    formula = _re_map.sub(
+                                        r"'P&L'!([A-Z]+)(\d+)",
+                                        lambda m: f"'P&L'!{pl_total_col}{m.group(2)}",
+                                        formula
+                                    )
+                                if bs_last_data_col and "'Balance Sheet'!" in formula:
+                                    formula = _re_map.sub(
+                                        r"'Balance Sheet'!([A-Z]+)(\d+)",
+                                        lambda m: f"'Balance Sheet'!{bs_last_data_col}{m.group(2)}",
+                                        formula
+                                    )
+                                cell.value = formula
 
                         wb.save(file_path)
                         progress_fn(f"  Mapping columns appended.")
