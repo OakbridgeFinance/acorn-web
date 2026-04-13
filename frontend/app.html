@@ -957,6 +957,19 @@ function _mapsInitResize() {
   );
 }
 
+// Convert QBO display name to GL Detail format
+// "51510 Cost of Sales (COS):Direct Software" → "51510 Direct Software"
+function getGLAccountName(displayName) {
+  const parts = (displayName || '').split(':');
+  const lastPart = parts[parts.length - 1].trim();
+  const numMatch = displayName.match(/^(\d[\d.\-]*)\s/);
+  const acctNum = numMatch ? numMatch[1] : '';
+  if (acctNum && !lastPart.startsWith(acctNum)) {
+    return acctNum + ' ' + lastPart;
+  }
+  return lastPart || displayName;
+}
+
 function _mapsAssignedSet() {
   const s = new Set();
   for (const g of mapsState.groups) {
@@ -1026,7 +1039,8 @@ function mapsRenderAccounts() {
     const name = a.name || '';
     const num = (a.acct_num || '').trim();
     const displayName = num ? `${num} ${name}` : name;
-    const isAssigned = assigned.has(displayName);
+    const glName = getGLAccountName(displayName);
+    const isAssigned = assigned.has(displayName) || assigned.has(glName) || assigned.has(name);
     const isSelected = _mapsSelectedAccounts.has(displayName);
     const cls = 'maps-account-item' + (isAssigned ? ' assigned' : '') + (isSelected ? ' selected' : '');
     const draggable = isAssigned ? '' : 'draggable="true"';
@@ -1197,36 +1211,31 @@ function mapsDrop(e, groupIdx) {
   e.currentTarget.classList.remove('drag-over');
 
   // Collect accounts to add — use multi-selection if available
-  const accountsToAdd = [];
+  const displayNames = [];
   if (_mapsSelectedAccounts.size > 0) {
-    // Build name→displayName lookup from allAccounts
-    const lookup = {};
-    for (const a of mapsState.allAccounts) {
-      const num = (a.acct_num || '').trim();
-      const dn = num ? num + ' ' + a.name : a.name;
-      lookup[dn] = a.name;
-    }
-    for (const dn of _mapsSelectedAccounts) {
-      accountsToAdd.push({ name: lookup[dn] || dn, display_name: dn });
-    }
+    for (const dn of _mapsSelectedAccounts) displayNames.push(dn);
   } else {
     const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
     try {
       const data = JSON.parse(raw);
-      accountsToAdd.push({ name: data.name, display_name: data.display_name || data.name });
-    } catch { accountsToAdd.push({ name: raw, display_name: raw }); }
+      displayNames.push(data.display_name || data.name || raw);
+    } catch { displayNames.push(raw); }
   }
 
-  for (const acct of accountsToAdd) {
-    // Remove from any existing group
+  for (const dn of displayNames) {
+    const glName = getGLAccountName(dn);
+
+    // Remove from any existing group (match both display_name and glName)
     for (const g of mapsState.groups) {
       g.accounts = (g.accounts || []).filter(a => {
-        const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
-        return dn !== acct.display_name;
+        const stored = typeof a === 'string' ? a : (a.display_name || a.name || '');
+        return stored !== dn && stored !== glName;
       });
     }
-    mapsState.groups[groupIdx].accounts.push(acct);
+
+    // Store with GL format name (matches Excel Account Name column)
+    mapsState.groups[groupIdx].accounts.push({ name: glName, display_name: glName });
   }
 
   _mapsSelectedAccounts.clear();
