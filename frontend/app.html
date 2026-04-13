@@ -811,6 +811,7 @@ const _BS_ACCOUNT_TYPES = new Set(['Bank', 'Accounts Receivable', 'Other Current
 
 let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
 let _mapsSelectedAccounts = new Set();
+let _mapsLastClickedIdx = -1;
 
 function _getRealmId() { return state.realmId; }
 
@@ -930,6 +931,7 @@ function mapsOpenEditor() {
 
 function mapsCloseEditor() {
   _mapsSelectedAccounts.clear();
+  _mapsLastClickedIdx = -1;
   hide('mapsEditor'); show('mapsListView');
   mapsState.editing = null;
   mapsRenderList();
@@ -1012,6 +1014,7 @@ function mapsRenderAll() {
 
 function mapsSetStatement(stmt) {
   _mapsSelectedAccounts.clear();
+  _mapsLastClickedIdx = -1;
   mapsState.statement = stmt;
   document.querySelectorAll('.maps-stmt-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.stmt === stmt);
@@ -1058,7 +1061,7 @@ function mapsRenderAccounts() {
     const nextIndent = nextAcct && hasIndents ? (mapsState.indentLevels[nextAcct.name] || 0) : 0;
     a._isParent = nextAcct && nextIndent > myIndent;
   });
-  list.innerHTML = accts.map(a => {
+  list.innerHTML = accts.map((a, idx) => {
     const name = a.name || '';
     const num = (a.acct_num || '').trim();
     const displayName = num ? `${num} ${name}` : name;
@@ -1076,9 +1079,9 @@ function mapsRenderAccounts() {
     const indentPx = indent * 16;
     const isParent = !!a._isParent;
     return `<div class="${cls}" ${draggable}
-                 onclick="mapsAccountClick(event, '${escHtml(displayName)}')"
+                 onclick="mapsAccountClick(event, '${escHtml(displayName)}', ${idx})"
                  ondragstart="mapsDragStartMulti(event, '${escHtml(name)}', '${escHtml(displayName)}')"
-                 data-acct="${escHtml(name)}"
+                 data-acct="${escHtml(name)}" data-idx="${idx}"
                  style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
       <span class="maps-acct-type">${escHtml(a.type || '')}</span>
       <span class="maps-acct-name" style="font-weight:${isParent ? '600' : '400'};color:${isParent ? 'var(--text)' : 'var(--text-light)'};">${escHtml(displayName)}</span>
@@ -1194,15 +1197,34 @@ function mapsRenderSummary() {
   }
 }
 
-function mapsAccountClick(e, displayName) {
+function mapsAccountClick(e, displayName, accountIdx) {
   const assigned = _mapsAssignedSet();
   if (assigned.has(displayName)) return;
-  if (e.ctrlKey || e.metaKey) {
+
+  if (e.shiftKey && _mapsLastClickedIdx >= 0) {
+    const allItems = Array.from(
+      document.querySelectorAll('#mapsAccountList .maps-account-item:not(.assigned)')
+    );
+    const start = Math.min(_mapsLastClickedIdx, accountIdx);
+    const end   = Math.max(_mapsLastClickedIdx, accountIdx);
+    allItems.forEach((el, i) => {
+      if (i >= start && i <= end) {
+        const name = el.dataset.acct;
+        const num = (el.dataset.idx !== undefined) ? '' : '';
+        // Get the display name from the element text
+        const dnEl = el.querySelector('.maps-acct-name');
+        const dn = dnEl ? dnEl.textContent.trim() : (name || '');
+        if (dn && !assigned.has(dn)) _mapsSelectedAccounts.add(dn);
+      }
+    });
+  } else if (e.ctrlKey || e.metaKey) {
     if (_mapsSelectedAccounts.has(displayName)) _mapsSelectedAccounts.delete(displayName);
     else _mapsSelectedAccounts.add(displayName);
+    _mapsLastClickedIdx = accountIdx;
   } else {
     _mapsSelectedAccounts.clear();
     _mapsSelectedAccounts.add(displayName);
+    _mapsLastClickedIdx = accountIdx;
   }
   mapsRenderAccounts();
 }

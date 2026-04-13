@@ -152,22 +152,32 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     account_maps = []
                     if mapping_result.data:
                         account_maps = mapping_result.data[0].get("account_maps", [])
-                    logger.info(f"account_maps from Supabase: {len(account_maps)} maps")
 
                     maps_to_apply = [m for m in account_maps if m.get("map_name", "") in selected_maps]
-                    logger.info(f"maps_to_apply after filter: {[m.get('map_name') for m in maps_to_apply]}")
+                    logger.info(f"maps_to_apply: {[m.get('map_name') for m in maps_to_apply]}")
 
                     if maps_to_apply:
                         progress_fn(f"  Applying {len(maps_to_apply)} mapping(s)...")
                         import openpyxl as _ox
                         from openpyxl.styles import Font, PatternFill
                         from openpyxl.utils import get_column_letter
-                        import re as _re2
 
                         wb = _ox.load_workbook(file_path)
                         HEADER_FILL = PatternFill("solid", fgColor="336699")
                         HEADER_FONT = Font(bold=True, color="FFFFFF")
 
+                        def _build_lookup(m):
+                            lookup = {}
+                            for grp in m.get("groups", []):
+                                group_name = grp.get("group_name", "")
+                                section = grp.get("pl_section") or grp.get("bs_section") or ""
+                                for acct in grp.get("accounts", []):
+                                    acct_name = (acct.get("account_name", "") if isinstance(acct, dict) else str(acct)).strip()
+                                    if acct_name:
+                                        lookup[acct_name] = (group_name, section)
+                            return lookup
+
+                        # GL Detail tabs — append columns at end
                         for tab_name in ("IS GL Detail", "BS GL Detail"):
                             if tab_name not in wb.sheetnames:
                                 continue
@@ -175,61 +185,65 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if ws.max_row < 2:
                                 continue
 
-                            logger.info(f"Processing tab {tab_name}, max_row={ws.max_row}")
                             header = [ws.cell(row=1, column=ci).value for ci in range(1, ws.max_column + 1)]
                             try:
                                 acct_col_idx = header.index("Account Name") + 1
                             except ValueError:
-                                logger.info(f"  Account Name column not found in {tab_name}, header: {header}")
                                 continue
 
-                            sample_names = []
-                            for ri in range(2, min(8, ws.max_row + 1)):
-                                val = ws.cell(row=ri, column=acct_col_idx).value
-                                if val:
-                                    sample_names.append(repr(str(val)))
-                            logger.info(f"  Account Name samples in {tab_name}: {sample_names}")
-
-                            for m in maps_to_apply:
+                            next_col = ws.max_column + 1
+                            for map_idx, m in enumerate(maps_to_apply):
                                 map_name = m.get("map_name", "")
-
-                                # Build lookup: account_name string -> (group_name, section)
-                                lookup = {}
-                                for grp in m.get("groups", []):
-                                    group_name = grp.get("group_name", "")
-                                    section    = grp.get("pl_section") or grp.get("bs_section") or ""
-                                    for acct in grp.get("accounts", []):
-                                        if isinstance(acct, dict):
-                                            acct_name = acct.get("account_name", "").strip()
-                                        else:
-                                            acct_name = str(acct).strip()
-                                        if acct_name:
-                                            lookup[acct_name] = (group_name, section)
-
-                                logger.info(f"  Map '{map_name}': lookup has {len(lookup)} entries")
-                                logger.info(f"  lookup keys sample: {list(lookup.keys())[:5]}")
-
-                                next_col = ws.max_column + 1
-                                grp_col = next_col
-                                sec_col = next_col + 1
+                                lookup = _build_lookup(m)
+                                grp_col = next_col + (map_idx * 2)
+                                sec_col = next_col + (map_idx * 2) + 1
 
                                 c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
-                                c.font = HEADER_FONT
-                                c.fill = HEADER_FILL
-                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
-                                c.font = HEADER_FONT
-                                c.fill = HEADER_FILL
+                                c.font = HEADER_FONT; c.fill = HEADER_FILL
                                 ws.column_dimensions[get_column_letter(grp_col)].width = 24
+                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
+                                c.font = HEADER_FONT; c.fill = HEADER_FILL
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
-                                # Write values — exact string match, log first 20 rows for debug
                                 for ri in range(2, ws.max_row + 1):
                                     cell_val = ws.cell(row=ri, column=acct_col_idx).value
                                     if not cell_val:
                                         continue
                                     acct_name = str(cell_val).strip()
-                                    if ri <= 21:
-                                        logger.info(f"  row {ri}: '{acct_name}' -> {lookup.get(acct_name, 'NO MATCH')}")
+                                    match = lookup.get(acct_name)
+                                    if match:
+                                        ws.cell(row=ri, column=grp_col, value=match[0])
+                                        ws.cell(row=ri, column=sec_col, value=match[1])
+
+                        # BS Balances, P&L, Balance Sheet — insert columns after col A
+                        for tab_name in ("BS Balances", "P&L", "Balance Sheet"):
+                            if tab_name not in wb.sheetnames:
+                                continue
+                            ws = wb[tab_name]
+                            if ws.max_row < 2:
+                                continue
+
+                            num_new_cols = len(maps_to_apply) * 2
+                            ws.insert_cols(2, num_new_cols)
+
+                            for map_idx, m in enumerate(maps_to_apply):
+                                map_name = m.get("map_name", "")
+                                lookup = _build_lookup(m)
+                                grp_col = 2 + (map_idx * 2)
+                                sec_col = 2 + (map_idx * 2) + 1
+
+                                c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
+                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                ws.column_dimensions[get_column_letter(grp_col)].width = 24
+                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
+                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                ws.column_dimensions[get_column_letter(sec_col)].width = 22
+
+                                for ri in range(2, ws.max_row + 1):
+                                    cell_val = ws.cell(row=ri, column=1).value
+                                    if not cell_val:
+                                        continue
+                                    acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
