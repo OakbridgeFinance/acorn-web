@@ -560,24 +560,24 @@ async function loadMappingSelection(realmId) {
       return;
     }
     body.innerHTML =
-      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
-      '<select id="mappingDropdown" class="select" style="max-width:300px">' +
-      '<option value="">None (QBO default structure)</option>' +
-      maps.map((m, i) => '<option value="' + i + '">' + escHtml(m.map_name || 'Unnamed') + '</option>').join('') +
-      '</select>' +
-      '<span style="font-size:12px;color:var(--text-light)">' +
-      maps.length + ' mapping' + (maps.length > 1 ? 's' : '') + ' available \u00b7 ' +
-      '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Manage</a>' +
-      '</span></div>';
+      '<div style="font-size:12px;color:var(--text-light);margin-bottom:8px">' +
+      'Select maps to append as columns in the output. Leave all unchecked for QBO default structure.</div>' +
+      maps.map((m, i) =>
+        '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;font-size:13px">' +
+        '<input type="checkbox" class="map-select-check" value="' + escHtml(m.map_name || '') + '" ' +
+        'style="width:14px;height:14px;accent-color:var(--accent)">' +
+        escHtml(m.map_name || 'Unnamed') +
+        '</label>'
+      ).join('') +
+      '<div style="margin-top:8px"><a href="#" onclick="showMappingPage()" ' +
+      'style="color:var(--accent);font-size:12px">Manage mappings \u2192</a></div>';
   } catch (e) {
     body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Could not load mappings.</div>';
   }
 }
 
-function getSelectedMap() {
-  const dd = $('mappingDropdown');
-  if (!dd || dd.value === '') return '';
-  return dd.options[dd.selectedIndex]?.text || '';
+function getSelectedMaps() {
+  return Array.from(document.querySelectorAll('.map-select-check:checked')).map(cb => cb.value);
 }
 
 // ── Generate ────────────────────────────────────────────────────────────────
@@ -610,7 +610,7 @@ async function generate() {
         start_date:    startDate,
         end_date:      endDate,
         dimension:     $('liteGlDimension')?.value || 'none',
-        selected_map:  getSelectedMap(),
+        selected_maps: getSelectedMaps(),
       }),
     });
     const data = await res.json();
@@ -836,13 +836,15 @@ function mapsRenderList() {
     const acctCount = (m.groups || []).reduce((s, g) => s + (g.accounts || []).length, 0);
     const name = escHtml(m.map_name || 'Unnamed');
     return `
-      <div class="maps-list-card" onclick="mapsEdit(${idx})">
-        <div class="maps-list-info">
+      <div class="maps-list-card">
+        <div class="maps-list-info" style="cursor:pointer" onclick="mapsEdit(${idx})">
           <div class="maps-list-name">${name}</div>
           <div class="maps-list-meta">${groupCount} groups \u00b7 ${acctCount} accounts</div>
         </div>
         <div class="maps-list-actions">
-          <button class="btn-outline btn-sm" onclick="event.stopPropagation(); mapsDelete(${idx})">Delete</button>
+          <button class="btn-outline btn-sm" onclick="mapsEdit(${idx})">Edit</button>
+          <button class="btn-outline btn-sm" onclick="mapsDuplicate(${idx})">Duplicate</button>
+          <button class="btn-outline btn-sm" style="color:#DC2626;border-color:#DC2626" onclick="mapsDelete(${idx})">Delete</button>
         </div>
       </div>`;
   }).join('');
@@ -1323,6 +1325,23 @@ async function _doSaveMap(mapObj, asNew) {
     mapsCloseEditor();
   } catch (e) {
     alert('Save failed: ' + e.message);
+  }
+}
+
+async function mapsDuplicate(idx) {
+  const copy = JSON.parse(JSON.stringify(mapsState.maps[idx]));
+  copy.map_name = (copy.map_name || 'Unnamed') + ' (Copy)';
+  mapsState.maps.push(copy);
+  const realmId = _getRealmId();
+  try {
+    await fetch(API + '/api/mapping/' + realmId, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ account_maps: mapsState.maps }),
+    });
+    mapsRenderList();
+  } catch (e) {
+    alert('Duplicate failed: ' + e.message);
   }
 }
 

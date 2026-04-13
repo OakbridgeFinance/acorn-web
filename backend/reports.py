@@ -30,15 +30,16 @@ def get_supabase():
 
 
 class GenerateRequest(BaseModel):
-    realm_id:     str
-    start_date:   str
-    end_date:     str
-    dimension:    str = "none"
-    selected_map: str = ""
+    realm_id:      str
+    start_date:    str
+    end_date:      str
+    dimension:     str = "none"
+    selected_maps: list[str] = []
 
 
 def run_report_job(job_id: str, user_id: str, realm_id: str,
-                   start_date: str, end_date: str, dimension: str):
+                   start_date: str, end_date: str, dimension: str,
+                   selected_maps: list[str] | None = None):
     """Run in a background thread — fetches QBO data and generates Excel file."""
     try:
         update_job(job_id, status="running")
@@ -137,8 +138,88 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 progress_fn=progress_fn,
             )
 
-            # Upload to Supabase storage
             file_path = result["path"]
+
+            # Append mapping columns if maps were selected
+            if selected_maps:
+                try:
+                    mapping_result = supabase.table("mappings").select("account_maps").eq(
+                        "user_id", user_id
+                    ).eq("realm_id", realm_id).execute()
+
+                    account_maps = []
+                    if mapping_result.data:
+                        account_maps = mapping_result.data[0].get("account_maps", [])
+
+                    maps_to_apply = [m for m in account_maps if m.get("map_name", "") in selected_maps]
+
+                    if maps_to_apply:
+                        progress_fn(f"  Applying {len(maps_to_apply)} mapping(s)...")
+                        import openpyxl as _ox
+                        from openpyxl.styles import Font, PatternFill
+                        from openpyxl.utils import get_column_letter
+                        import re as _re2
+
+                        wb = _ox.load_workbook(file_path)
+                        HEADER_FILL = PatternFill("solid", fgColor="336699")
+                        HEADER_FONT = Font(bold=True, color="FFFFFF")
+
+                        for tab_name in ("IS GL Detail", "BS GL Detail"):
+                            if tab_name not in wb.sheetnames:
+                                continue
+                            ws = wb[tab_name]
+                            if ws.max_row < 2:
+                                continue
+
+                            header = [ws.cell(row=1, column=ci).value for ci in range(1, ws.max_column + 1)]
+                            try:
+                                acct_col_idx = header.index("Account Name") + 1
+                            except ValueError:
+                                continue
+
+                            for m in maps_to_apply:
+                                map_name = m.get("map_name", "")
+                                lookup = {}
+                                for grp in m.get("groups", []):
+                                    group_name = grp.get("group_name", "")
+                                    section = grp.get("pl_section") or grp.get("bs_section") or ""
+                                    for acct in grp.get("accounts", []):
+                                        acct_name = (acct.get("account_name", "") if isinstance(acct, dict) else str(acct)).strip()
+                                        if acct_name:
+                                            lookup[acct_name] = (group_name, section)
+
+                                next_col = ws.max_column + 1
+                                grp_col = next_col
+                                sec_col = next_col + 1
+
+                                c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
+                                c.font = HEADER_FONT
+                                c.fill = HEADER_FILL
+                                c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
+                                c.font = HEADER_FONT
+                                c.fill = HEADER_FILL
+                                ws.column_dimensions[get_column_letter(grp_col)].width = 24
+                                ws.column_dimensions[get_column_letter(sec_col)].width = 22
+
+                                for ri in range(2, ws.max_row + 1):
+                                    acct_name = ws.cell(row=ri, column=acct_col_idx).value
+                                    if not acct_name:
+                                        continue
+                                    acct_name = str(acct_name).strip()
+                                    match = lookup.get(acct_name)
+                                    if not match:
+                                        bare = _re2.sub(r'^\d[\d.\-]*\s+', '', acct_name).strip()
+                                        match = lookup.get(bare)
+                                    if match:
+                                        ws.cell(row=ri, column=grp_col, value=match[0])
+                                        ws.cell(row=ri, column=sec_col, value=match[1])
+
+                        wb.save(file_path)
+                        progress_fn(f"  Mapping columns appended.")
+                except Exception as e:
+                    progress_fn(f"  WARNING: Could not apply mappings — {e}")
+
+            # Upload to Supabase storage
             storage_path = f"{user_id}/{job_id}/{file_name}"
 
             with open(file_path, "rb") as f:
@@ -181,7 +262,8 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     thread = threading.Thread(
         target=run_report_job,
         args=(job["id"], str(user.id), body.realm_id,
-              body.start_date, body.end_date, body.dimension),
+              body.start_date, body.end_date, body.dimension,
+              body.selected_maps),
         daemon=True,
     )
     thread.start()
