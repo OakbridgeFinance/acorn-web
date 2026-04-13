@@ -805,7 +805,7 @@ def _fetch_monthly_reports(
 
     bs_data: dict[str, dict] = {}
     bs_order: list[str] = []
-    bs_month_labels = [m.strftime("%b %d, %Y") for m in months]
+    bs_month_labels = [m.strftime("%b %Y") for m in months]
 
     first_month_accounts: set[str] = set()
 
@@ -855,13 +855,6 @@ def _fetch_monthly_reports(
     if bs_order:
         bs_rows.append(["Account"] + bs_month_labels)
         for acct in bs_order:
-            # Skip accounts that only appeared after the first month
-            # and have activity in fewer than 2 months — likely rogue rows
-            if first_month_accounts and acct not in first_month_accounts:
-                info = bs_data[acct]
-                non_zero_months = sum(1 for v in info["values"] if v != 0.0)
-                if non_zero_months < 2:
-                    continue
             info  = bs_data[acct]
             label = ("  " * info["indent"]) + acct
             bs_rows.append([label] + info["values"])

@@ -1457,7 +1457,6 @@ async function _doSaveMap(mapObj, asNew) {
     mapsState.maps = allMaps;
     mapsCloseEditor();
     // Refresh mapping checkboxes on extraction page
-    const realmId = _getRealmId();
     if (realmId) loadMappingSelection(realmId);
   } catch (e) {
     alert('Save failed: ' + e.message);
