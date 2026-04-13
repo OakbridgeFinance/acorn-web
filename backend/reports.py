@@ -304,12 +304,24 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             ws_sum.cell(cr, tot_col).fill = HDR_FILL
                             cr += 1
 
-                            # Data rows with SUMIFS
-                            data_rows = []
+                            # Aggregate by section — one row per P&L section
+                            INCOME_SECS  = {"Revenue", "Other Income"}
+                            EXPENSE_SECS = {"COS", "Cost of Goods Sold", "Sales & Marketing", "Operating Expenses", "Other Expense"}
+
+                            section_order = []
+                            seen_secs = set()
                             for gname, sec in is_groups:
-                                ws_sum.cell(cr, 1, gname)
-                                ws_sum.cell(cr, 2, sec)
-                                data_rows.append(cr)
+                                if sec and sec not in seen_secs:
+                                    seen_secs.add(sec)
+                                    section_order.append(sec)
+
+                            data_rows = []  # [(row_number, section_name)]
+                            for sec in section_order:
+                                ws_sum.cell(cr, 1, sec)
+                                ws_sum.cell(cr, 2, "")
+                                data_rows.append((cr, sec))
+                                groups_in_sec = [gn for gn, gs in is_groups if gs == sec]
+
                                 for ci, mk in enumerate(month_keys, 3):
                                     mv = month_dates.get(mk)
                                     if mv and hasattr(mv, 'year'):
@@ -321,37 +333,38 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             date_f = f"DATE({d.year},{d.month},{last})"
                                         except Exception:
                                             date_f = f'"{mk}"'
-                                    f = (f"=SUMIFS('IS GL Detail'!${is_amt_col_l}:${is_amt_col_l},"
-                                         f"'IS GL Detail'!${is_grp_col_l}:${is_grp_col_l},"
-                                         f'"{gname}",'
-                                         f"'IS GL Detail'!${is_mon_col_l}:${is_mon_col_l},"
-                                         f"{date_f})")
-                                    ws_sum.cell(cr, ci, f).number_format = NUM_FMT
-                                # Row total
+                                    if groups_in_sec:
+                                        parts = "+".join([
+                                            f"SUMIFS('IS GL Detail'!${is_amt_col_l}:${is_amt_col_l},"
+                                            f"'IS GL Detail'!${is_grp_col_l}:${is_grp_col_l},"
+                                            f'"{g}",'
+                                            f"'IS GL Detail'!${is_mon_col_l}:${is_mon_col_l},"
+                                            f"{date_f})"
+                                            for g in groups_in_sec
+                                        ])
+                                        formula = f"={parts}"
+                                    else:
+                                        formula = "=0"
+                                    ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
+
                                 sl = get_column_letter(3)
                                 el = get_column_letter(2 + num_mo)
-                                ws_sum.cell(cr, tot_col,
-                                    f"=SUM({sl}{cr}:{el}{cr})").number_format = NUM_FMT
+                                ws_sum.cell(cr, tot_col, f"=SUM({sl}{cr}:{el}{cr})").number_format = NUM_FMT
                                 cr += 1
 
-                            # Net Income = Income sections - Expense sections
-                            INCOME_SECS  = {"Revenue", "Other Income"}
-                            EXPENSE_SECS = {"COS", "Cost of Goods Sold", "Sales & Marketing", "Operating Expenses", "Other Expense"}
-                            income_rows  = []
-                            expense_rows = []
-                            for i, (gname, sec) in enumerate(is_groups):
-                                if sec in INCOME_SECS:
-                                    income_rows.append(data_rows[i])
-                                else:
-                                    expense_rows.append(data_rows[i])
-
+                            # Net Income — income sections minus expense sections
                             ni_row = cr
                             ws_sum.cell(cr, 1, "Net Income").font = BOLD
                             for ci in range(3, tot_col + 1):
                                 cl       = get_column_letter(ci)
-                                inc_part = "+".join(f"{cl}{r}" for r in income_rows)  or "0"
-                                exp_part = "+".join(f"{cl}{r}" for r in expense_rows) or "0"
-                                formula  = f"={inc_part}-({exp_part})" if expense_rows else f"={inc_part}"
+                                inc_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in INCOME_SECS)
+                                exp_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in EXPENSE_SECS)
+                                if inc_refs and exp_refs:
+                                    formula = f"={inc_refs}-({exp_refs})"
+                                elif inc_refs:
+                                    formula = f"={inc_refs}"
+                                else:
+                                    formula = "=0"
                                 c = ws_sum.cell(cr, ci, formula)
                                 c.number_format = NUM_FMT
                                 c.font = BOLD

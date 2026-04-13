@@ -849,6 +849,14 @@ def _fetch_monthly_reports(
     if bs_order:
         bs_rows.append(["Account"] + bs_month_labels)
         for acct in bs_order:
+            # Only include accounts that appeared in the first month's BS
+            # Accounts appearing only in later months (after GrandTotal) are rogue
+            if first_month_accounts and acct not in first_month_accounts:
+                # Allow if it has non-zero values in at least 2 months
+                info = bs_data[acct]
+                non_zero = sum(1 for v in info["values"] if v != 0.0)
+                if non_zero < 2:
+                    continue
             info  = bs_data[acct]
             label = ("  " * info["indent"]) + acct
             bs_rows.append([label] + info["values"])
