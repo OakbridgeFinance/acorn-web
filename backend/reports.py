@@ -143,6 +143,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             # Append mapping columns if maps were selected
             if selected_maps:
                 try:
+                    logger.info(f"selected_maps received: {selected_maps}")
                     mapping_result = supabase.table("mappings").select("account_maps").eq(
                         "user_id", user_id
                     ).eq("realm_id", realm_id).execute()
@@ -150,8 +151,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     account_maps = []
                     if mapping_result.data:
                         account_maps = mapping_result.data[0].get("account_maps", [])
+                    logger.info(f"account_maps from Supabase: {len(account_maps)} maps")
 
                     maps_to_apply = [m for m in account_maps if m.get("map_name", "") in selected_maps]
+                    logger.info(f"maps_to_apply after filter: {[m.get('map_name') for m in maps_to_apply]}")
 
                     if maps_to_apply:
                         progress_fn(f"  Applying {len(maps_to_apply)} mapping(s)...")
@@ -171,10 +174,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if ws.max_row < 2:
                                 continue
 
+                            logger.info(f"Processing tab {tab_name}, max_row={ws.max_row}")
                             header = [ws.cell(row=1, column=ci).value for ci in range(1, ws.max_column + 1)]
                             try:
                                 acct_col_idx = header.index("Account Name") + 1
                             except ValueError:
+                                logger.info(f"  Account Name column not found in {tab_name}, header: {header}")
                                 continue
 
                             for m in maps_to_apply:
@@ -187,6 +192,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         acct_name = (acct.get("account_name", "") if isinstance(acct, dict) else str(acct)).strip()
                                         if acct_name:
                                             lookup[acct_name] = (group_name, section)
+                                logger.info(f"  Map '{map_name}': lookup has {len(lookup)} entries, sample: {list(lookup.items())[:3]}")
 
                                 next_col = ws.max_column + 1
                                 grp_col = next_col
