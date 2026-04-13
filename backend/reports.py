@@ -220,6 +220,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
+                                    # Apply consistent formatting to both new columns
+                                    for col in (grp_col, sec_col):
+                                        tgt = ws.cell(row=ri, column=col)
+                                        tgt.font      = Font(name="Calibri", size=11)
+                                        tgt.fill      = PatternFill("solid", fgColor="FFFFFF")
+                                        tgt.alignment = Alignment(horizontal="left")
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
@@ -304,15 +310,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if not formula or not isinstance(formula, str) or not formula.startswith("="):
                                     continue
                                 if pl_total_col and "'P&L'!" in formula:
+                                    # Match column ranges like 'P&L'!J:J
                                     formula = _re_map.sub(
-                                        r"'P&L'!([A-Z]+)(\d+)",
-                                        lambda m: f"'P&L'!{pl_total_col}{m.group(2)}",
+                                        r"'P&L'!([A-Z]+):([A-Z]+)",
+                                        f"'P&L'!{pl_total_col}:{pl_total_col}",
                                         formula
                                     )
                                 if bs_last_data_col and "'Balance Sheet'!" in formula:
+                                    # Match column ranges like 'Balance Sheet'!J:J
                                     formula = _re_map.sub(
-                                        r"'Balance Sheet'!([A-Z]+)(\d+)",
-                                        lambda m: f"'Balance Sheet'!{bs_last_data_col}{m.group(2)}",
+                                        r"'Balance Sheet'!([A-Z]+):([A-Z]+)",
+                                        f"'Balance Sheet'!{bs_last_data_col}:{bs_last_data_col}",
                                         formula
                                     )
                                 cell.value = formula
