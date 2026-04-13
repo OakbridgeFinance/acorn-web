@@ -1665,6 +1665,81 @@ def _write_dimension_sheet(
 
 # ── Main entry point ─────────────────────────────────────────────────────────
 
+def _build_is_gl_summary(is_gl_rows: list[list]) -> list[list]:
+    """Aggregate IS GL Detail rows by Account + Month + Dimension."""
+    if not is_gl_rows or len(is_gl_rows) < 2:
+        return is_gl_rows
+    from collections import defaultdict
+    header = is_gl_rows[0]
+    def ci(name):
+        try: return header.index(name)
+        except ValueError: return -1
+    i_an = ci("Account Name"); i_num = ci("Account Number"); i_mo = ci("Month")
+    i_amt = ci("Amount"); i_at = ci("Account Type"); i_as = ci("Account Subtype")
+    i_dim = -1; dim_name = None
+    for dn in ("Class", "Location", "Department"):
+        i_dim = ci(dn)
+        if i_dim >= 0: dim_name = dn; break
+    std = {"Transaction Type","Date","Transaction #","Posting","Name","Memo/Description",
+           "Split","Amount","Running Balance","Account Name","Account Number",
+           "Account Type","Account Subtype","Month","Class","Location","Department",
+           "Customer/Vendor","Num"}
+    mci = [i for i, h in enumerate(header) if h not in std]
+    agg = defaultdict(float); meta = {}
+    for row in is_gl_rows[1:]:
+        an = row[i_an] if i_an >= 0 else ""; nu = row[i_num] if i_num >= 0 else ""
+        mo = row[i_mo] if i_mo >= 0 else ""; dv = row[i_dim] if i_dim >= 0 else "Total"
+        am = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
+        key = (an, nu, mo, dv); agg[key] += am
+        if key not in meta:
+            meta[key] = {"at": row[i_at] if i_at >= 0 else "", "as": row[i_as] if i_as >= 0 else "",
+                         "mv": [row[i] if i < len(row) else "" for i in mci]}
+    sh = ["Account Name","Account Number","Account Type","Account Subtype","Month"]
+    if dim_name: sh.append(dim_name)
+    sh.append("Amount")
+    sh += [header[i] for i in mci]
+    out = [sh]
+    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][2]), str(x[0][0]))):
+        an, nu, mo, dv = key; m = meta[key]
+        r = [an, nu, m["at"], m["as"], mo]
+        if dim_name: r.append(dv)
+        r.append(amt); r += m["mv"]; out.append(r)
+    return out
+
+
+def _build_bs_gl_summary(bs_gl_rows: list[list]) -> list[list]:
+    """Aggregate BS GL Detail rows by Account + Month."""
+    if not bs_gl_rows or len(bs_gl_rows) < 2:
+        return bs_gl_rows
+    from collections import defaultdict
+    header = bs_gl_rows[0]
+    def ci(name):
+        try: return header.index(name)
+        except ValueError: return -1
+    i_an = ci("Account Name"); i_num = ci("Account Number"); i_mo = ci("Month")
+    i_amt = ci("Amount"); i_at = ci("Account Type"); i_as = ci("Account Subtype")
+    std = {"Transaction Type","Date","Transaction #","Posting","Name","Memo/Description",
+           "Split","Amount","Running Balance","Account Name","Account Number",
+           "Account Type","Account Subtype","Month","Customer/Vendor","Num"}
+    mci = [i for i, h in enumerate(header) if h not in std]
+    agg = defaultdict(float); meta = {}
+    for row in bs_gl_rows[1:]:
+        an = row[i_an] if i_an >= 0 else ""; nu = row[i_num] if i_num >= 0 else ""
+        mo = row[i_mo] if i_mo >= 0 else ""
+        am = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
+        key = (an, nu, mo); agg[key] += am
+        if key not in meta:
+            meta[key] = {"at": row[i_at] if i_at >= 0 else "", "as": row[i_as] if i_as >= 0 else "",
+                         "mv": [row[i] if i < len(row) else "" for i in mci]}
+    sh = ["Account Name","Account Number","Account Type","Account Subtype","Month","Amount"]
+    sh += [header[i] for i in mci]
+    out = [sh]
+    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][2]), str(x[0][0]))):
+        an, nu, mo = key; m = meta[key]
+        r = [an, nu, m["at"], m["as"], mo, amt]; r += m["mv"]; out.append(r)
+    return out
+
+
 def generate_lite(
     alias: str,
     start_date: str,
@@ -1677,6 +1752,7 @@ def generate_lite(
     pct_fn: Callable[[int], None] | None = None,
     cancel_fn: Callable[[], bool] | None = None,
     dimension: str = "class",
+    include_gl_detail: bool = False,
 ) -> dict:
     """
     Run Acorn Lite extraction — three pulls to one Excel file.
@@ -1775,18 +1851,38 @@ def generate_lite(
         wb.calculation.fullCalcOnLoad = True
         wb.remove(wb.active)
 
-    _write_sheet(wb, "IS GL Detail", is_rows)
-    _write_sheet(wb, "BS GL Detail", bs_rows)
+    # Build summary tabs
+    is_summary_rows = _build_is_gl_summary(is_rows)
+    bs_summary_rows = _build_bs_gl_summary(bs_rows)
+
+    # Write tabs in order — summary always, detail only if requested
+    _write_sheet(wb, "IS GL Summary", is_summary_rows)
+    _write_sheet(wb, "BS GL Summary", bs_summary_rows)
+    if include_gl_detail:
+        _write_sheet(wb, "IS GL Detail", is_rows)
+        _write_sheet(wb, "BS GL Detail", bs_rows)
     _write_sheet(wb, "BS Balances", bal_rows)
-    # Build P&L cross-check: Net Income from P&L report vs IS GL Detail SUMIFS
+    # Build P&L cross-check: Net Income from P&L report vs IS GL Summary SUMIFS
+    # Dynamic column lookup — resolve column letters from summary headers
+    def _col_letter(headers, col_name):
+        from openpyxl.utils import get_column_letter as _gcl
+        for i, h in enumerate(headers):
+            if str(h or "").strip() == col_name:
+                return _gcl(i + 1)
+        return None
+
+    is_sum_hdr = is_summary_rows[0] if is_summary_rows else []
+    IS_AMT = _col_letter(is_sum_hdr, "Amount")
+    IS_MON = _col_letter(is_sum_hdr, "Month")
+    IS_TYP = _col_letter(is_sum_hdr, "Account Type")
+
     pl_validation_rows = []
-    if pl_report_rows and len(pl_report_rows) > 1:
+    if pl_report_rows and len(pl_report_rows) > 1 and IS_AMT and IS_MON and IS_TYP:
         month_labels_val = pl_report_rows[0][1:]
         num_months_val   = len(month_labels_val)
 
         from openpyxl.utils import get_column_letter as _gcl_pl
 
-        # Find Net Income row in P&L tab
         net_income_row_idx = None
         for ri, row in enumerate(pl_report_rows):
             label = str(row[0]).strip().lower()
@@ -1795,62 +1891,43 @@ def generate_lite(
                 break
 
         if net_income_row_idx:
-            # Row 1: Net Income from P&L report tab (cell reference)
-            pl_ni_row = ["Net Income — P&L Report"] + [
+            pl_ni_row = ["Net Income \u2014 P&L Report"] + [
                 f"={_gcl_pl(ci+2)}{net_income_row_idx}"
                 for ci in range(num_months_val)
             ]
 
-            # Row 2: Net Income from IS GL Detail
-            # Column positions depend on dimension mode (Month col added as B):
-            # "class":    A=Date,B=Month,C=TxnType,D=Num,E=AcctName,F=AcctNum,G=AcctType,
-            #             H=AcctSubtype,I=CustVend,J=Memo,K=Split,L=Amount,M=RunBal,N=Class
-            # "location": same as class but N=Location
-            # "none":     A=Date,B=Month,C=TxnType,D=Num,E=AcctName,F=AcctNum,G=AcctType,
-            #             H=AcctSubtype,I=Class,J=Location,K=CustVend,L=Memo,M=Split,N=Amount,O=RunBal
-            _ni_dim = (dimension or "none").lower().strip()
-            NI_AMT_COL  = "N" if _ni_dim == "none" else "L"
-            NI_TYPE_COL = "G"  # Account Type is always G regardless of dimension
-
-            gl_ni_row = ["Net Income — IS GL Detail"]
+            gl_ni_row = ["Net Income \u2014 IS GL Summary"]
             from datetime import datetime as _dt_val
             import calendar as _cal_val
             for ml in month_labels_val:
                 try:
                     month_dt = _dt_val.strptime(ml, "%b %Y")
-                    ms = f"DATE({month_dt.year},{month_dt.month},1)"
                     me_day = _cal_val.monthrange(month_dt.year, month_dt.month)[1]
                     me = f"DATE({month_dt.year},{month_dt.month},{me_day})"
                     income_formula = (
-                        f"SUMIFS('IS GL Detail'!{NI_AMT_COL}:{NI_AMT_COL},"
-                        f"'IS GL Detail'!A:A,\">=\"&{ms},"
-                        f"'IS GL Detail'!A:A,\"<=\"&{me},"
-                        f"'IS GL Detail'!{NI_TYPE_COL}:{NI_TYPE_COL},\"Income\")"
-                        f"+SUMIFS('IS GL Detail'!{NI_AMT_COL}:{NI_AMT_COL},"
-                        f"'IS GL Detail'!A:A,\">=\"&{ms},"
-                        f"'IS GL Detail'!A:A,\"<=\"&{me},"
-                        f"'IS GL Detail'!{NI_TYPE_COL}:{NI_TYPE_COL},\"Other Income\")"
+                        f"SUMIFS('IS GL Summary'!${IS_AMT}:${IS_AMT},"
+                        f"'IS GL Summary'!${IS_MON}:${IS_MON},{me},"
+                        f"'IS GL Summary'!${IS_TYP}:${IS_TYP},\"Income\")"
+                        f"+SUMIFS('IS GL Summary'!${IS_AMT}:${IS_AMT},"
+                        f"'IS GL Summary'!${IS_MON}:${IS_MON},{me},"
+                        f"'IS GL Summary'!${IS_TYP}:${IS_TYP},\"Other Income\")"
                     )
                     expense_formula = (
-                        f"SUMIFS('IS GL Detail'!{NI_AMT_COL}:{NI_AMT_COL},"
-                        f"'IS GL Detail'!A:A,\">=\"&{ms},"
-                        f"'IS GL Detail'!A:A,\"<=\"&{me},"
-                        f"'IS GL Detail'!{NI_TYPE_COL}:{NI_TYPE_COL},\"Expense\")"
-                        f"+SUMIFS('IS GL Detail'!{NI_AMT_COL}:{NI_AMT_COL},"
-                        f"'IS GL Detail'!A:A,\">=\"&{ms},"
-                        f"'IS GL Detail'!A:A,\"<=\"&{me},"
-                        f"'IS GL Detail'!{NI_TYPE_COL}:{NI_TYPE_COL},\"Cost of Goods Sold\")"
-                        f"+SUMIFS('IS GL Detail'!{NI_AMT_COL}:{NI_AMT_COL},"
-                        f"'IS GL Detail'!A:A,\">=\"&{ms},"
-                        f"'IS GL Detail'!A:A,\"<=\"&{me},"
-                        f"'IS GL Detail'!{NI_TYPE_COL}:{NI_TYPE_COL},\"Other Expense\")"
+                        f"SUMIFS('IS GL Summary'!${IS_AMT}:${IS_AMT},"
+                        f"'IS GL Summary'!${IS_MON}:${IS_MON},{me},"
+                        f"'IS GL Summary'!${IS_TYP}:${IS_TYP},\"Expense\")"
+                        f"+SUMIFS('IS GL Summary'!${IS_AMT}:${IS_AMT},"
+                        f"'IS GL Summary'!${IS_MON}:${IS_MON},{me},"
+                        f"'IS GL Summary'!${IS_TYP}:${IS_TYP},\"Cost of Goods Sold\")"
+                        f"+SUMIFS('IS GL Summary'!${IS_AMT}:${IS_AMT},"
+                        f"'IS GL Summary'!${IS_MON}:${IS_MON},{me},"
+                        f"'IS GL Summary'!${IS_TYP}:${IS_TYP},\"Other Expense\")"
                     )
                     formula = f"=({income_formula})-({expense_formula})"
                 except Exception:
                     formula = 0.0
                 gl_ni_row.append(formula)
 
-            # Row 3: Difference
             R1_pl = len(pl_report_rows) + 4
             R2_pl = len(pl_report_rows) + 5
             diff_row_pl = ["Difference (should be zero)"] + [

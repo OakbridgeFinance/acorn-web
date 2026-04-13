@@ -167,6 +167,16 @@
           </select>
         </div>
 
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+          <input type="checkbox" id="includeGLDetail" style="width:14px;height:14px;cursor:pointer;">
+          <label for="includeGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+            Include full GL detail tabs
+          </label>
+          <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
+            (GL data is summarized by default)
+          </span>
+        </div>
+
         <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
           <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="flex:1;">
             <span id="btnLiteLabel">Generate Report</span>
@@ -462,6 +472,8 @@ function resetExtractionUI() {
   // Clear job IDs
   _currentJobId = null;
   _lastCompletedJobId = null;
+  const glDetailCheck = $('includeGLDetail');
+  if (glDetailCheck) glDetailCheck.checked = false;
 }
 
 function selectClient(realmId, companyName) {
@@ -681,8 +693,9 @@ async function generate() {
         realm_id:      state.realmId,
         start_date:    startDate,
         end_date:      endDate,
-        dimension:     $('liteGlDimension')?.value || 'none',
-        selected_maps: getSelectedMaps(),
+        dimension:         $('liteGlDimension')?.value || 'none',
+        selected_maps:     getSelectedMaps(),
+        include_gl_detail: $('includeGLDetail')?.checked || false,
       }),
     });
     const data = await res.json();

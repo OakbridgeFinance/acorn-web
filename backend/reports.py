@@ -22,15 +22,17 @@ def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 class GenerateRequest(BaseModel):
-    realm_id:      str
-    start_date:    str
-    end_date:      str
-    dimension:     str = "none"
-    selected_maps: list[str] = []
+    realm_id:          str
+    start_date:        str
+    end_date:          str
+    dimension:         str = "none"
+    selected_maps:     list[str] = []
+    include_gl_detail: bool = False
 
 def run_report_job(job_id: str, user_id: str, realm_id: str,
                    start_date: str, end_date: str, dimension: str,
-                   selected_maps: list[str] | None = None):
+                   selected_maps: list[str] | None = None,
+                   include_gl_detail: bool = False):
     """Run in a background thread — fetches QBO data and generates Excel file."""
     try:
         update_job(job_id, status="running")
@@ -114,6 +116,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 file_name=file_name,
                 dimension=dimension,
                 progress_fn=progress_fn,
+                include_gl_detail=include_gl_detail,
             )
             file_path = result["path"]
 
@@ -172,7 +175,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             return out
 
                         # ── Append to IS GL Detail, BS GL Detail, BS Balances ──
-                        for tab in ("IS GL Detail", "BS GL Detail", "BS Balances"):
+                        for tab in ("IS GL Summary", "BS GL Summary", "IS GL Detail", "BS GL Detail", "BS Balances"):
                             if tab not in wb.sheetnames:
                                 continue
                             ws  = wb[tab]
@@ -639,7 +642,7 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
         target=run_report_job,
         args=(job["id"], str(user.id), body.realm_id,
               body.start_date, body.end_date, body.dimension,
-              body.selected_maps),
+              body.selected_maps, body.include_gl_detail),
         daemon=True,
     )
     thread.start()
