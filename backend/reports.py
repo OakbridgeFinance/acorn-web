@@ -60,7 +60,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             return
 
         tokens = token_result.data[0]
-        company_name = tokens.get("company_name", realm_id)
+        company_name = tokens.get("company_name", "") or realm_id
+        logger.info(f"company_name from tokens: '{company_name}'")
         access_token  = tokens["access_token"]
         refresh_token = tokens["refresh_token"]
 
@@ -182,6 +183,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 logger.info(f"  Account Name column not found in {tab_name}, header: {header}")
                                 continue
 
+                            sample_names = []
+                            for ri in range(2, min(8, ws.max_row + 1)):
+                                val = ws.cell(row=ri, column=acct_col_idx).value
+                                if val:
+                                    sample_names.append(repr(str(val)))
+                            logger.info(f"  Account Name samples in {tab_name}: {sample_names}")
+
                             for m in maps_to_apply:
                                 map_name = m.get("map_name", "")
                                 lookup = {}
@@ -193,6 +201,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         if acct_name:
                                             lookup[acct_name] = (group_name, section)
                                 logger.info(f"  Map '{map_name}': lookup has {len(lookup)} entries, sample: {list(lookup.items())[:3]}")
+                                logger.info(f"  Lookup key samples: {[repr(k) for k in list(lookup.keys())[:5]]}")
 
                                 next_col = ws.max_column + 1
                                 grp_col = next_col
