@@ -137,11 +137,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         for sn in wb.sheetnames:
                             wb[sn].sheet_view.showGridLines = False
 
-                        MAP_HEADER_FILL = PatternFill("solid", fgColor="336699")
+                        MAP_HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
                         MAP_HEADER_FONT = Font(bold=True, color="FFFFFF")
-                        PLAIN_FONT      = Font(name="Calibri", size=11, bold=False)
-                        PLAIN_FILL      = PatternFill("solid", fgColor="FFFFFF")
-                        PLAIN_ALIGN     = Alignment(horizontal="left", vertical="bottom")
+                        PLAIN_FILL  = PatternFill(fill_type=None)
+                        PLAIN_ALIGN = Alignment(horizontal="left", vertical="bottom")
 
                         def _build_lookup(m):
                             lookup = {}
@@ -203,7 +202,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     # Always set plain formatting on new columns
                                     for col in (grp_col, sec_col):
                                         tgt = ws.cell(row=ri, column=col)
-                                        tgt.font      = PLAIN_FONT
+                                        src = ws.cell(row=ri, column=acct_col_idx)
+                                        tgt.font      = _copy(src.font)
                                         tgt.fill      = PLAIN_FILL
                                         tgt.alignment = PLAIN_ALIGN
                                     match = lookup.get(acct_name)
