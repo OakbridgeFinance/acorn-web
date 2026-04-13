@@ -163,6 +163,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         from openpyxl.utils import get_column_letter
 
                         wb = _ox.load_workbook(file_path)
+                        # Hide gridlines on all tabs
+                        for sn in wb.sheetnames:
+                            wb[sn].sheet_view.showGridLines = False
                         HEADER_FILL = PatternFill("solid", fgColor="336699")
                         HEADER_FONT = Font(bold=True, color="FFFFFF")
 
@@ -216,6 +219,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         ws.cell(row=ri, column=sec_col, value=match[1])
 
                         # BS Balances, P&L, Balance Sheet — insert columns after col A
+                        from copy import copy as _copy
+                        from openpyxl.styles import Alignment as _Alignment
+
                         for tab_name in ("BS Balances", "P&L", "Balance Sheet"):
                             if tab_name not in wb.sheetnames:
                                 continue
@@ -240,11 +246,22 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
                                 for ri in range(2, ws.max_row + 1):
-                                    cell_val = ws.cell(row=ri, column=1).value
+                                    source_cell = ws.cell(row=ri, column=1)
+                                    cell_val = source_cell.value
                                     if not cell_val:
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
+
+                                    # Copy formatting from col A to new map columns
+                                    for col in (grp_col, sec_col):
+                                        target = ws.cell(row=ri, column=col)
+                                        if source_cell.has_style:
+                                            target.font = _copy(source_cell.font)
+                                            target.fill = _copy(source_cell.fill)
+                                            target.border = _copy(source_cell.border)
+                                            target.alignment = _Alignment(horizontal="left")
+
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])

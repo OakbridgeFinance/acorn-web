@@ -1129,6 +1129,7 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
     from openpyxl.styles import Font
 
     ws = wb.create_sheet(tab_name)
+    ws.sheet_view.showGridLines = False
     if not rows:
         ws.cell(row=1, column=1, value="No data")
         return
@@ -1182,6 +1183,7 @@ def _write_validation_sheet(
     import re as _re
 
     ws = wb.create_sheet("Validation")
+    ws.sheet_view.showGridLines = False
 
     GREEN      = PatternFill("solid", fgColor="C6EFCE")
     RED        = PatternFill("solid", fgColor="FFC7CE")
@@ -1478,10 +1480,12 @@ def _write_report_sheet(
 
     if not rows or len(rows) < 2:
         ws = wb.create_sheet(tab_name)
+        ws.sheet_view.showGridLines = False
         ws.cell(row=1, column=1, value="No data")
         return
 
     ws = wb.create_sheet(tab_name)
+    ws.sheet_view.showGridLines = False
 
     HEADER_BG  = PatternFill("solid", fgColor="1F4E79")
     SECTION_BG = PatternFill("solid", fgColor="D9E1F2")
@@ -1603,10 +1607,12 @@ def _write_dimension_sheet(
 
     if not rows or len(rows) < 2:
         ws = wb.create_sheet(tab_name)
+        ws.sheet_view.showGridLines = False
         ws.cell(row=1, column=1, value="No data")
         return
 
     ws = wb.create_sheet(tab_name)
+    ws.sheet_view.showGridLines = False
 
     HEADER_BG  = PatternFill("solid", fgColor="1F4E79")
     BOLD_WHITE = Font(bold=True, color="FFFFFF")
