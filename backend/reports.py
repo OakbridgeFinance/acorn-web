@@ -122,10 +122,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                     if maps_to_apply:
                         import openpyxl as _ox
-                        from openpyxl.styles import Font, PatternFill, Alignment
+                        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
                         from openpyxl.utils import get_column_letter, column_index_from_string
+                        from openpyxl.formatting.rule import CellIsRule
                         import re as _re_map
                         from copy import copy as _copy
+                        from datetime import datetime as _dt
+                        import calendar as _cal
 
                         wb = _ox.load_workbook(file_path)
 
@@ -146,24 +149,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         out[name] = (gname, sect)
                             return out
 
-                        def _patch_col_refs(formula, tab_name, num_inserted, insert_pos=2):
-                            """Shift column references >= insert_pos in formulas referencing tab_name."""
-                            def _shift(match):
-                                col_letter = match.group(1)
-                                sep = match.group(2)
-                                col_idx = column_index_from_string(col_letter)
-                                if col_idx >= insert_pos:
-                                    col_idx += num_inserted
-                                return get_column_letter(col_idx) + sep
-                            escaped = _re_map.escape(tab_name)
-                            pattern = _re_map.compile(rf"'{escaped}'!([A-Z]+)([:0-9])")
-                            return pattern.sub(
-                                lambda m: f"'{tab_name}'!" + _shift(m),
-                                formula
-                            )
-
                         n = len(maps_to_apply)
-                        nc = n * 2  # number of new columns
+                        nc = n * 2
 
                         # ── GL Detail tabs — insert after Account Name ──────
                         for tab in ("IS GL Detail", "BS GL Detail"):
@@ -199,18 +186,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         ws.cell(ri, gc, match[0])
                                         ws.cell(ri, sc, match[1])
 
-                        # ── P&L, Balance Sheet, BS Balances — insert after col A
-                        pl_total_before = None
-                        if "P&L" in wb.sheetnames:
-                            ph = [wb["P&L"].cell(1,c).value for c in range(1, wb["P&L"].max_column+1)]
-                            if "Total" in ph:
-                                pl_total_before = ph.index("Total") + 1
-
-                        bs_last_before = None
-                        if "Balance Sheet" in wb.sheetnames:
-                            bs_last_before = wb["Balance Sheet"].max_column
-
-                        for tab in ("BS Balances", "P&L", "Balance Sheet"):
+                        # ── BS Balances only — insert after col A ───────────
+                        for tab in ("BS Balances",):
                             if tab not in wb.sheetnames:
                                 continue
                             ws = wb[tab]
@@ -247,67 +224,271 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         ws.cell(ri, gc, match[0])
                                         ws.cell(ri, sc, match[1])
 
-                        # ── Patch Validation formulas ───────────────────────
+                        # ── Patch Validation col C — BS Balances refs only ──
                         if "Validation" in wb.sheetnames:
                             ws_v = wb["Validation"]
-                            new_pl_col = get_column_letter(pl_total_before + nc) if pl_total_before else None
-                            new_bs_col = get_column_letter(bs_last_before  + nc) if bs_last_before  else None
                             patched = 0
-
                             for ri in range(1, ws_v.max_row+1):
-                                # Patch col D (QBO Report Value)
-                                cell = ws_v.cell(ri, 4)
-                                f = cell.value
-                                if f and isinstance(f, str) and f.startswith("="):
-                                    orig = f
-                                    # P&L: only replace LAST col ref (return array)
-                                    if new_pl_col and "'P&L'!" in f:
-                                        refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", f))
-                                        if refs:
-                                            last = refs[-1]
-                                            f = f[:last.start()] + f"'P&L'!{new_pl_col}:{new_pl_col}" + f[last.end():]
-                                    # Balance Sheet: only replace LAST col ref
-                                    if new_bs_col and "'Balance Sheet'!" in f:
-                                        refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", f))
-                                        if refs:
-                                            last = refs[-1]
-                                            f = f[:last.start()] + f"'Balance Sheet'!{new_bs_col}:{new_bs_col}" + f[last.end():]
-                                    if f != orig:
-                                        cell.value = f
-                                        patched += 1
-
-                                # Patch col C (GL Value Live) — BS Balances refs
                                 cell_c = ws_v.cell(ri, 3)
                                 fc = cell_c.value
-                                if fc and isinstance(fc, str) and fc.startswith("=") and "'BS Balances'!" in fc:
-                                    orig_c = fc
+                                if not fc or not isinstance(fc, str) or not fc.startswith("="):
+                                    continue
+                                orig_c = fc
+                                if "'BS Balances'!" in fc:
                                     refs = list(_re_map.finditer(r"'BS Balances'!([A-Z]+):([A-Z]+)", fc))
                                     for ref in reversed(refs):
                                         old_idx = column_index_from_string(ref.group(1))
                                         if old_idx >= 2:
                                             new_letter = get_column_letter(old_idx + nc)
                                             fc = fc[:ref.start()] + f"'BS Balances'!{new_letter}:{new_letter}" + fc[ref.end():]
-                                    # Also patch IS GL Detail refs in col C
-                                    if fc != orig_c:
-                                        cell_c.value = fc
-                                        patched += 1
-
-                                # Patch IS GL Detail refs in col C
-                                if fc and isinstance(fc, str) and fc.startswith("=") and "'IS GL Detail'!" in fc:
-                                    fc2 = cell_c.value or fc
-                                    orig_c2 = fc2
-                                    refs = list(_re_map.finditer(r"'IS GL Detail'!([A-Z]+):([A-Z]+)", fc2))
+                                if "'IS GL Detail'!" in fc:
+                                    refs = list(_re_map.finditer(r"'IS GL Detail'!([A-Z]+):([A-Z]+)", fc))
                                     for ref in reversed(refs):
                                         old_idx = column_index_from_string(ref.group(1))
-                                        if old_idx > acct_col if 'acct_col' in dir() else old_idx >= 2:
+                                        if old_idx >= 6:
                                             new_letter = get_column_letter(old_idx + nc)
-                                            fc2 = fc2[:ref.start()] + f"'IS GL Detail'!{new_letter}:{new_letter}" + fc2[ref.end():]
-                                    if fc2 != orig_c2:
-                                        cell_c.value = fc2
-                                        patched += 1
-
+                                            fc = fc[:ref.start()] + f"'IS GL Detail'!{new_letter}:{new_letter}" + fc[ref.end():]
+                                if fc != orig_c:
+                                    cell_c.value = fc
+                                    patched += 1
                             logger.info(f"Validation: patched {patched} formulas")
 
+                        # ── Map Summary tab ─────────────────────────────────
+                        def write_map_summary(wb, maps_to_apply):
+                            NUM_FMT = "#,##0.00"
+                            BOLD = Font(bold=True)
+                            SEC_FILL = PatternFill("solid", fgColor="D9E1F2")
+                            SUBTOT_FILL = PatternFill("solid", fgColor="EEF2F7")
+                            RED_FONT = Font(bold=True, color="9C0006")
+                            RED_FILL = PatternFill("solid", fgColor="FFC7CE")
+                            GREEN_FONT = Font(bold=True, color="276221")
+                            GREEN_FILL = PatternFill("solid", fgColor="C6EFCE")
+
+                            ws = wb.create_sheet("Map Summary")
+                            ws.sheet_view.showGridLines = False
+
+                            # Get month labels from P&L
+                            month_labels = []
+                            if "P&L" in wb.sheetnames:
+                                ws_pl = wb["P&L"]
+                                for ci in range(2, ws_pl.max_column + 1):
+                                    v = ws_pl.cell(1, ci).value
+                                    if v and str(v) not in ("Total", ""):
+                                        month_labels.append(str(v))
+                            if not month_labels:
+                                ws.cell(1, 1, "No P&L data available")
+                                return
+
+                            # Build IS data from IS GL Detail
+                            is_data = {}
+                            is_order = []
+                            if "IS GL Detail" in wb.sheetnames:
+                                ws_is = wb["IS GL Detail"]
+                                hdr = [ws_is.cell(1, c).value for c in range(1, ws_is.max_column+1)]
+                                month_col = (hdr.index("Month") + 1) if "Month" in hdr else None
+                                amount_col = (hdr.index("Amount") + 1) if "Amount" in hdr else None
+                                mgc = {}
+                                for ci, h in enumerate(hdr):
+                                    if h and str(h).endswith(" - Account Group"):
+                                        mn = str(h).replace(" - Account Group", "")
+                                        sl = f"{mn} - Statement Section"
+                                        if sl in hdr:
+                                            mgc[mn] = (ci+1, hdr.index(sl)+1)
+                                if month_col and amount_col and mgc:
+                                    for ri in range(2, ws_is.max_row+1):
+                                        mv = ws_is.cell(ri, month_col).value
+                                        av = ws_is.cell(ri, amount_col).value
+                                        if not mv or not av:
+                                            continue
+                                        if hasattr(mv, 'strftime'):
+                                            ml = mv.strftime("%b %Y")
+                                        else:
+                                            try: ml = _dt.strptime(str(mv)[:7], "%Y-%m").strftime("%b %Y")
+                                            except: ml = str(mv)
+                                        if ml not in month_labels:
+                                            continue
+                                        amt = float(av or 0)
+                                        for mn, (gc, sc) in mgc.items():
+                                            grp = ws_is.cell(ri, gc).value or ""
+                                            sec = ws_is.cell(ri, sc).value or ""
+                                            if not grp:
+                                                continue
+                                            key = (mn, grp, sec)
+                                            if key not in is_data:
+                                                is_data[key] = {m: 0.0 for m in month_labels}
+                                                is_order.append(key)
+                                            is_data[key][ml] = is_data[key].get(ml, 0.0) + amt
+
+                            # Build BS data from BS Balances
+                            bs_data = {}
+                            bs_order = []
+                            bs_months = []
+                            if "BS Balances" in wb.sheetnames:
+                                ws_bs = wb["BS Balances"]
+                                hdr_bs = [ws_bs.cell(1, c).value for c in range(1, ws_bs.max_column+1)]
+                                date_col = None
+                                bal_col = None
+                                for ci, h in enumerate(hdr_bs):
+                                    if h == "Date": date_col = ci + 1
+                                    if h == "Ending Balance": bal_col = ci + 1
+                                mgc_bs = {}
+                                for ci, h in enumerate(hdr_bs):
+                                    if h and str(h).endswith(" - Account Group"):
+                                        mn = str(h).replace(" - Account Group", "")
+                                        sl = f"{mn} - Statement Section"
+                                        if sl in hdr_bs:
+                                            mgc_bs[mn] = (ci+1, hdr_bs.index(sl)+1)
+                                if date_col and bal_col and mgc_bs:
+                                    seen = []
+                                    for ri in range(2, ws_bs.max_row+1):
+                                        dv = ws_bs.cell(ri, date_col).value
+                                        if dv:
+                                            if hasattr(dv, 'strftime'):
+                                                ml = dv.strftime("%b %Y")
+                                            else:
+                                                ml = str(dv)
+                                            if ml not in seen:
+                                                seen.append(ml)
+                                    bs_months = seen
+                                    for ri in range(2, ws_bs.max_row+1):
+                                        dv = ws_bs.cell(ri, date_col).value
+                                        bv = ws_bs.cell(ri, bal_col).value
+                                        if not dv:
+                                            continue
+                                        if hasattr(dv, 'strftime'):
+                                            ml = dv.strftime("%b %Y")
+                                        else:
+                                            ml = str(dv)
+                                        bal = float(bv or 0)
+                                        for mn, (gc, sc) in mgc_bs.items():
+                                            grp = ws_bs.cell(ri, gc).value or ""
+                                            sec = ws_bs.cell(ri, sc).value or ""
+                                            if not grp:
+                                                continue
+                                            key = (mn, grp, sec)
+                                            if key not in bs_data:
+                                                bs_data[key] = {m: 0.0 for m in bs_months}
+                                                bs_order.append(key)
+                                            bs_data[key][ml] = bal
+
+                            # Write summary
+                            cr = 1
+                            for mname in [m.get("map_name","") for m in maps_to_apply]:
+                                # IS section
+                                ws.cell(cr, 1, f"{mname} \u2014 Income Statement").font = Font(bold=True, size=13)
+                                cr += 1
+                                ws.cell(cr, 1, "Account Group").font = HDR_FONT
+                                ws.cell(cr, 1).fill = HDR_FILL
+                                ws.cell(cr, 2, "Section").font = HDR_FONT
+                                ws.cell(cr, 2).fill = HDR_FILL
+                                for ci, ml in enumerate(month_labels, 3):
+                                    c = ws.cell(cr, ci, ml)
+                                    c.font = HDR_FONT; c.fill = HDR_FILL
+                                    c.alignment = Alignment(horizontal="center")
+                                tc = len(month_labels) + 3
+                                ws.cell(cr, tc, "Total").font = HDR_FONT
+                                ws.cell(cr, tc).fill = HDR_FILL
+                                cr += 1
+
+                                ni_map = {ml: 0.0 for ml in month_labels}
+                                for key in [k for k in is_order if k[0] == mname]:
+                                    monthly = is_data[key]
+                                    ws.cell(cr, 1, key[1])
+                                    ws.cell(cr, 2, key[2])
+                                    rt = 0.0
+                                    for ci, ml in enumerate(month_labels, 3):
+                                        v = monthly.get(ml, 0.0)
+                                        ws.cell(cr, ci, v).number_format = NUM_FMT
+                                        rt += v; ni_map[ml] = ni_map.get(ml, 0.0) + v
+                                    ws.cell(cr, tc, rt).number_format = NUM_FMT
+                                    cr += 1
+
+                                ni_row = cr
+                                ws.cell(cr, 1, "Net Income").font = BOLD
+                                for ci, ml in enumerate(month_labels, 3):
+                                    c = ws.cell(cr, ci, ni_map.get(ml, 0.0))
+                                    c.number_format = NUM_FMT; c.font = BOLD
+                                ws.cell(cr, tc, sum(ni_map.values())).number_format = NUM_FMT
+                                ws.cell(cr, tc).font = BOLD
+                                cr += 1
+
+                                qbo_row = cr
+                                ws.cell(cr, 1, "Net Income \u2014 QBO P&L").font = Font(italic=True)
+                                if "P&L" in wb.sheetnames:
+                                    ws_pl = wb["P&L"]
+                                    pl_hdr = [ws_pl.cell(1, c).value for c in range(1, ws_pl.max_column+1)]
+                                    for pri in range(2, ws_pl.max_row+1):
+                                        lbl = str(ws_pl.cell(pri, 1).value or "").strip().lower()
+                                        if lbl in ("net income", "net earnings"):
+                                            for ci, ml in enumerate(month_labels, 3):
+                                                try:
+                                                    pc = pl_hdr.index(ml) + 1
+                                                    pv = ws_pl.cell(pri, pc).value
+                                                    c = ws.cell(cr, ci, float(pv or 0))
+                                                    c.number_format = NUM_FMT; c.font = Font(italic=True)
+                                                except (ValueError, TypeError): pass
+                                            break
+                                cr += 1
+
+                                diff_row = cr
+                                ws.cell(cr, 1, "Difference (should be zero)").font = BOLD
+                                for ci in range(3, tc+1):
+                                    cl = get_column_letter(ci)
+                                    ws.cell(cr, ci, f"={cl}{ni_row}-{cl}{qbo_row}").number_format = NUM_FMT
+                                cr += 2
+
+                                # Conditional formatting on diff row
+                                dr = f"C{diff_row}:{get_column_letter(tc)}{diff_row}"
+                                ws.conditional_formatting.add(dr, CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
+                                ws.conditional_formatting.add(dr, CellIsRule(operator="equal", formula=["0"], font=GREEN_FONT, fill=GREEN_FILL))
+
+                                # BS section
+                                if bs_months:
+                                    ws.cell(cr, 1, f"{mname} \u2014 Balance Sheet").font = Font(bold=True, size=13)
+                                    cr += 1
+                                    ws.cell(cr, 1, "Account Group").font = HDR_FONT
+                                    ws.cell(cr, 1).fill = HDR_FILL
+                                    ws.cell(cr, 2, "Section").font = HDR_FONT
+                                    ws.cell(cr, 2).fill = HDR_FILL
+                                    for ci, ml in enumerate(bs_months, 3):
+                                        c = ws.cell(cr, ci, ml)
+                                        c.font = HDR_FONT; c.fill = HDR_FILL; c.alignment = Alignment(horizontal="center")
+                                    cr += 1
+
+                                    sec_groups = {}
+                                    for key in [k for k in bs_order if k[0] == mname]:
+                                        sec = key[2]
+                                        if sec not in sec_groups: sec_groups[sec] = []
+                                        sec_groups[sec].append((key[1], bs_data[key]))
+
+                                    for sec, groups in sec_groups.items():
+                                        ws.cell(cr, 1, sec).font = BOLD
+                                        ws.cell(cr, 1).fill = SEC_FILL
+                                        for ci in range(2, len(bs_months)+3): ws.cell(cr, ci).fill = SEC_FILL
+                                        cr += 1
+                                        st = {ml: 0.0 for ml in bs_months}
+                                        for grp, monthly in groups:
+                                            ws.cell(cr, 1, f"  {grp}")
+                                            for ci, ml in enumerate(bs_months, 3):
+                                                v = monthly.get(ml, 0.0)
+                                                ws.cell(cr, ci, v).number_format = NUM_FMT
+                                                st[ml] = st.get(ml, 0.0) + v
+                                            cr += 1
+                                        ws.cell(cr, 1, f"Total {sec}").font = BOLD
+                                        ws.cell(cr, 1).fill = SUBTOT_FILL
+                                        for ci, ml in enumerate(bs_months, 3):
+                                            c = ws.cell(cr, ci, st.get(ml, 0.0))
+                                            c.number_format = NUM_FMT; c.font = BOLD; c.fill = SUBTOT_FILL
+                                        cr += 1
+                                    cr += 1
+
+                            ws.column_dimensions["A"].width = 30
+                            ws.column_dimensions["B"].width = 20
+                            for ci in range(3, ws.max_column+1):
+                                ws.column_dimensions[get_column_letter(ci)].width = 14
+                            ws.freeze_panes = "C2"
+
+                        write_map_summary(wb, maps_to_apply)
                         wb.save(file_path)
                         progress_fn("  Mapping columns appended.")
 
