@@ -1132,19 +1132,21 @@ _ACCT_NUM_COLS = {"Account Number", "Account #", "Num"}
 from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _AL, Border as _Bdr, Side as _Sd
 
 _ARIAL     = "Arial"
-_FONT_SIZE = 10
-_HDR_COLOR = "07393C"
-_ACCT_FMT  = '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)'
+_FONT_SZ   = 10
+_HDR_COLOR = "337E8D"
+_ACCT_FMT  = '#,##0.00_);(#,##0.00);"-"??;@'
 
-def _f(bold=False, color="000000"):
-    return _Font(name=_ARIAL, size=_FONT_SIZE, bold=bold, color=color)
+def _font(bold=False, color="000000", italic=False):
+    return _Font(name=_ARIAL, size=_FONT_SZ, bold=bold, color=color, italic=italic)
 
-HDR_FONT   = _f(bold=True, color="FFFFFF")
+HDR_FONT   = _font(bold=True, color="FFFFFF")
 HDR_FILL   = _PF("solid", fgColor=_HDR_COLOR)
-PLAIN_FONT = _f()
-BOLD_FONT  = _f(bold=True)
+PLAIN_FONT = _font()
+BOLD_FONT  = _font(bold=True)
 GRAY_FILL  = _PF("solid", fgColor="F2F2F2")
 NO_FILL    = _PF(fill_type=None)
+THIN       = _Sd(style="thin")
+DOUBLE     = _Sd(style="double")
 
 def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
     """Write rows to a worksheet with formatted header, dates, and amounts."""
@@ -1173,10 +1175,8 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
             if isinstance(val, date):
                 c.number_format = "M/D/YYYY"
             elif isinstance(val, (int, float)):
-                if (ci - 1) in acct_num_cols:
-                    c.number_format = "0"
-                else:
-                    c.number_format = _ACCT_FMT
+                c.number_format = "0" if (ci-1) in acct_num_cols else _ACCT_FMT
+                c.alignment     = _AL(horizontal="right")
 
 
 def _write_validation_sheet(
@@ -1205,14 +1205,14 @@ def _write_validation_sheet(
     ws = wb.create_sheet("Validation")
     ws.sheet_view.showGridLines = False
 
-    GREEN      = PatternFill("solid", fgColor="C6EFCE")
-    RED        = PatternFill("solid", fgColor="FFC7CE")
-    YELLOW     = PatternFill("solid", fgColor="FFEB9C")
-    HEADER_BG  = PatternFill("solid", fgColor="1F4E79")
-    SECTION_BG = PatternFill("solid", fgColor="BDD7EE")
-    BOLD       = Font(bold=True)
-    BOLD_WHITE = Font(bold=True, color="FFFFFF")
-    NUM_FMT    = "#,##0.00"
+    GREEN      = _PF("solid", fgColor="C6EFCE")
+    RED        = _PF("solid", fgColor="FFC7CE")
+    YELLOW     = _PF("solid", fgColor="FFEB9C")
+    HEADER_BG  = HDR_FILL
+    SECTION_BG = _PF("solid", fgColor="BDD7EE")
+    BOLD       = BOLD_FONT
+    BOLD_WHITE = HDR_FONT
+    NUM_FMT    = _ACCT_FMT
     TOLERANCE  = 0.02
 
     # IS GL column positions — Month column added as B, shifting everything right:
@@ -1559,11 +1559,10 @@ def _write_report_sheet(
 
                 if is_grandtotal:
                     c.fill   = NO_FILL
-                    c.border = Border(top=Side(style="thin"),
-                                      bottom=Side(style="double"))
+                    c.border = _Bdr(top=THIN, bottom=DOUBLE)
                 elif is_subtotal:
                     c.fill   = NO_FILL
-                    c.border = Border(top=Side(style="thin"))
+                    c.border = _Bdr(top=THIN)
                 elif is_header:
                     c.fill = GRAY_FILL
                 else:
@@ -1633,16 +1632,12 @@ def _write_dimension_sheet(
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
 
-    HEADER_BG  = PatternFill("solid", fgColor="1F4E79")
-    BOLD_WHITE = Font(bold=True, color="FFFFFF")
-    NUM_FMT    = "#,##0.00"
-
     header = rows[0]
     for ci, val in enumerate(header, 1):
         c           = ws.cell(row=1, column=ci, value=val)
-        c.font      = BOLD_WHITE
-        c.fill      = HEADER_BG
-        c.alignment = Alignment(horizontal="center" if ci > 4 else "left", vertical="center")
+        c.font      = HDR_FONT
+        c.fill      = HDR_FILL
+        c.alignment = _AL(horizontal="center" if ci > 4 else "left", vertical="center")
 
     for ri, row in enumerate(rows[1:], 2):
         if not row:
@@ -1651,9 +1646,10 @@ def _write_dimension_sheet(
             if val is not None and not isinstance(val, (str, int, float, date)):
                 val = str(val)
             c = ws.cell(row=ri, column=ci, value=val)
+            c.font = PLAIN_FONT
             if ci > 4 and isinstance(val, (int, float)):
-                c.number_format = NUM_FMT
-                c.alignment     = Alignment(horizontal="right")
+                c.number_format = _ACCT_FMT
+                c.alignment     = _AL(horizontal="right")
 
     ws.column_dimensions["A"].width = 40
     ws.column_dimensions["B"].width = 12

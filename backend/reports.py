@@ -144,20 +144,20 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             wb[sn].sheet_view.showGridLines = False
 
                         # Shared styles
-                        HDR_FONT    = Font(bold=True, color="FFFFFF")
-                        HDR_FILL    = PatternFill("solid", fgColor="1F4E79")
-                        GL_HDR_FONT = Font(bold=True)
-                        GL_HDR_FILL = PatternFill(fill_type=None)
-                        BOLD        = Font(bold=True)
-                        BOLD_LG     = Font(bold=True, size=12)
+                        HDR_FONT    = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+                        HDR_FILL    = PatternFill("solid", fgColor="337E8D")
+                        GL_HDR_FONT = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+                        GL_HDR_FILL = PatternFill("solid", fgColor="337E8D")
+                        BOLD        = Font(name="Arial", size=10, bold=True)
+                        BOLD_LG     = Font(name="Arial", size=12, bold=True)
                         SEC_FILL    = PatternFill("solid", fgColor="D9E1F2")
                         SUBTOT_FILL = PatternFill("solid", fgColor="EEF2F7")
                         NUM_FMT     = "#,##0.00"
-                        RED_FONT    = Font(bold=True)
+                        RED_FONT    = Font(name="Arial", size=10, bold=True)
                         RED_FILL    = PatternFill("solid", fgColor="FFC7CE")
-                        GRN_FONT    = Font(bold=True)
+                        GRN_FONT    = Font(name="Arial", size=10, bold=True)
                         GRN_FILL    = PatternFill("solid", fgColor="C6EFCE")
-                        LINK_FONT   = Font(color="276221")
+                        LINK_FONT   = Font(name="Arial", size=10, color="276221")
 
                         def build_lookup(m):
                             out = {}
