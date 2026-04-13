@@ -800,31 +800,57 @@ def _fetch_monthly_reports(
     if not months:
         return pl_rows, bs_rows
 
-    bs_data: dict[str, dict] = {}
-    bs_order: list[str] = []
-    bs_month_labels = [m.strftime("%b %Y") for m in months]
+    bs_data:         dict[str, dict] = {}
+    bs_order:        list[str]       = []
+    bs_month_labels: list[str]       = [m.strftime("%b %Y") for m in months]
 
+    # Step 1: One call for the FULL period to get complete account list in correct order
+    progress_fn(f"  Balance Sheet: fetching account structure...")
+    try:
+        bs_structure_raw = fetch_report(alias, "BalanceSheet", {
+            "start_date":        start_date,
+            "end_date":          months[-1].isoformat(),
+            "accounting_method": "Accrual",
+        })
+        bs_structure_df = parse_financial_statement(bs_structure_raw)
+        if not bs_structure_df.empty:
+            for _, row in bs_structure_df.iterrows():
+                row_type = str(row.get("Row_Type", "") or "")
+                if row_type == "GrandTotal":
+                    break
+                acct   = str(row.get("Account", "") or "").strip()
+                indent = int(row.get("Indent_Level", 0) or 0)
+                if not acct:
+                    continue
+                if acct not in bs_data:
+                    bs_data[acct] = {
+                        "indent":   indent,
+                        "row_type": row_type,
+                        "values":   [0.0] * len(months),
+                    }
+                    bs_order.append(acct)
+    except Exception as e:
+        progress_fn(f"  WARNING: BS structure fetch failed \u2014 {e}")
+
+    # Step 2: One call per month-end to get balances — only update known accounts
     for mi, me_dt in enumerate(months):
-        month_end = me_dt.isoformat()
         progress_fn(f"  Balance Sheet: {me_dt.strftime('%b %Y')}...")
         try:
             bs_raw = fetch_report(alias, "BalanceSheet", {
                 "start_date":        start_date,
-                "end_date":          month_end,
+                "end_date":          me_dt.isoformat(),
                 "accounting_method": "Accrual",
             })
             bs_df = parse_financial_statement(bs_raw)
             if bs_df.empty:
                 continue
             bs_num_cols = [c for c in bs_df.columns if c not in meta_cols]
-
             for _, row in bs_df.iterrows():
-                acct     = str(row.get("Account", "") or "").strip()
-                indent   = int(row.get("Indent_Level", 0) or 0)
                 row_type = str(row.get("Row_Type", "") or "")
                 if row_type == "GrandTotal":
                     break
-                if not acct:
+                acct = str(row.get("Account", "") or "").strip()
+                if not acct or acct not in bs_data:
                     continue
                 amount = 0.0
                 for c in reversed(bs_num_cols):
@@ -832,16 +858,11 @@ def _fetch_monthly_reports(
                     if v != 0.0:
                         amount = v
                         break
-                if acct not in bs_data:
-                    bs_data[acct] = {
-                        "indent": indent, "row_type": row_type,
-                        "values": [0.0] * len(months),
-                    }
-                    bs_order.append(acct)
                 bs_data[acct]["values"][mi] = amount
         except Exception as e:
-            progress_fn(f"  WARNING: BS fetch failed for {me_dt.strftime('%b %Y')} — {e}")
+            progress_fn(f"  WARNING: BS fetch failed for {me_dt.strftime('%b %Y')} \u2014 {e}")
 
+    # Write BS rows — in the order established by the full-period structure call
     if bs_order:
         bs_rows.append(["Account"] + bs_month_labels)
         for acct in bs_order:
