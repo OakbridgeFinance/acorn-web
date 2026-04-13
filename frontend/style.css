@@ -1920,7 +1920,8 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .maps-stmt-btn:last-of-type { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
 .maps-stmt-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 .maps-stmt-btn:hover:not(.active) { background: var(--bg); }
-.maps-date-filter { display: flex; align-items: center; gap: 4px; padding: 8px 12px; background: #F9FAFB; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px; font-size: 12px; width: fit-content; max-width: 600px; }
+.maps-date-filter { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #F9FAFB; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px; font-size: 12px; width: fit-content; max-width: 700px; flex-wrap: nowrap; white-space: nowrap; }
+.maps-date-filter .field-label { white-space: nowrap; flex-shrink: 0; }
 .maps-filter-count { margin-left: auto; font-size: 11px; color: var(--text-light); font-weight: 600; }
 .maps-editor { width: 100%; max-width: 1400px; }
 .maps-layout { display: flex; gap: 0; height: calc(100vh - 280px); min-height: 500px; width: 100%; max-width: 1400px; }

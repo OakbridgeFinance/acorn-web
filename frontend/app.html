@@ -552,8 +552,8 @@ async function loadMappingSelection(realmId) {
     const maps = data.account_maps || [];
     if (!maps.length) {
       body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">' +
-        'No mappings configured. ' +
-        '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Set up Account Mapping \u2192</a>' +
+        'No custom mappings configured \u2014 QBO default account structure. ' +
+        '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Set up custom Account Mapping \u2192</a>' +
         '</div>';
       return;
     }
@@ -974,6 +974,22 @@ function mapsSetStatement(stmt) {
   mapsRenderAll();
 }
 
+function _getAcctTotal(name, displayName) {
+  const t = mapsState.activityTotals;
+  if (!t || Object.keys(t).length === 0) return 0;
+  if (t[name] !== undefined) return t[name];
+  if (t[displayName] !== undefined) return t[displayName];
+  const bare = (displayName || '').replace(/^\d[\d.\-]*\s+/, '').trim();
+  if (bare && t[bare] !== undefined) return t[bare];
+  const nameLower = (name || '').toLowerCase();
+  for (const [key, val] of Object.entries(t)) {
+    if (key.toLowerCase() === nameLower) return val;
+    const keyBare = key.replace(/^\d[\d.\-]*\s+/, '').trim().toLowerCase();
+    if (keyBare === nameLower) return val;
+  }
+  return 0;
+}
+
 function mapsRenderAccounts() {
   const list = $('mapsAccountList');
   if (!list) return;
@@ -1028,7 +1044,7 @@ function mapsRenderAccounts() {
       : 0;
     const indentPx = indent * 16;
     const isParent = !!a._isParent;
-    const amt = hasActivity ? Math.abs(mapsState.activityTotals[name] || 0) : null;
+    const amt = hasActivity ? Math.abs(_getAcctTotal(name, displayName)) : null;
     const amtFmt = amt != null ? (amt >= 1 ? '$' + Math.round(amt).toLocaleString() : '\u2014') : '';
     return `<div class="${cls}" ${draggable}
                  ondragstart="mapsDragStart(event, '${escHtml(name)}', '${escHtml(displayName)}')"
@@ -1227,6 +1243,8 @@ async function mapsApplyFilter() {
       );
       const data = await res.json();
       mapsState.activityTotals = data.totals || {};
+      console.log('Totals fetched:', Object.keys(mapsState.activityTotals).length, 'accounts');
+      console.log('Sample keys:', Object.keys(mapsState.activityTotals).slice(0, 5));
     } catch (e) {
       mapsState.activityTotals = {};
     }
