@@ -172,12 +172,12 @@
           </select>
         </div>
 
-        <div class="action-bar" style="margin-top:16px;">
-          <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="width:100%;">
+        <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
+          <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="flex:1;">
             <span id="btnLiteLabel">Generate Report</span>
             <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
           </button>
-          <button class="btn-stop" id="btnLiteStop" style="display:none;margin-top:8px;width:100%;" onclick="stopReport()">Stop</button>
+          <button class="btn-stop" id="btnLiteStop" style="display:none;" onclick="stopReport()">Stop</button>
         </div>
       </div>
 

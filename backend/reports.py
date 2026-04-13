@@ -169,6 +169,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         HEADER_FILL = PatternFill("solid", fgColor="336699")
                         HEADER_FONT = Font(bold=True, color="FFFFFF")
 
+                        # Log Validation formula before mapping
+                        ws_val = wb["Validation"] if "Validation" in wb.sheetnames else None
+                        if ws_val:
+                            sample_formula = ws_val.cell(row=9, column=4).value
+                            logger.info(f"Validation D9 formula BEFORE mapping: {sample_formula}")
+
                         def _build_lookup(m):
                             lookup = {}
                             for grp in m.get("groups", []):
@@ -265,6 +271,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
+
+                        # Log Validation formula after mapping
+                        if ws_val:
+                            sample_formula = ws_val.cell(row=9, column=4).value
+                            logger.info(f"Validation D9 formula AFTER mapping: {sample_formula}")
 
                         wb.save(file_path)
                         progress_fn(f"  Mapping columns appended.")
