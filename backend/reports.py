@@ -133,6 +133,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                         HDR_FONT = Font(bold=True, color="FFFFFF")
                         HDR_FILL = PatternFill("solid", fgColor="1F4E79")
+                        GL_HDR_FONT = Font(bold=True)
+                        GL_HDR_FILL = PatternFill(fill_type=None)
 
                         def build_lookup(m):
                             out = {}
@@ -168,10 +170,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 sc   = base + mi*2 + 1
                                 mname = m.get("map_name","")
 
-                                ws.cell(1, gc, f"{mname} - Account Group").font = HDR_FONT
-                                ws.cell(1, gc).fill = HDR_FILL
-                                ws.cell(1, sc, f"{mname} - Statement Section").font = HDR_FONT
-                                ws.cell(1, sc).fill = HDR_FILL
+                                ws.cell(1, gc, f"{mname} - Account Group").font = GL_HDR_FONT
+                                ws.cell(1, gc).fill = GL_HDR_FILL
+                                ws.cell(1, sc, f"{mname} - Statement Section").font = GL_HDR_FONT
+                                ws.cell(1, sc).fill = GL_HDR_FILL
                                 ws.column_dimensions[get_column_letter(gc)].width = 24
                                 ws.column_dimensions[get_column_letter(sc)].width = 22
 
@@ -221,15 +223,27 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if not month_col or not amount_col:
                                     continue
 
-                                # Collect months
+                                # Collect months — normalize to YYYY-MM string keys
+                                from datetime import datetime as _dt2
                                 month_set = []
+                                _month_display = {}  # key → display label
                                 for ri in range(2, ws_is.max_row+1):
                                     mv = ws_is.cell(ri, month_col).value
-                                    if mv and mv not in month_set:
-                                        month_set.append(mv)
-                                month_labels = sorted(set(month_set), key=lambda x: str(x))
+                                    if mv is None:
+                                        continue
+                                    if hasattr(mv, 'strftime'):
+                                        ml = mv.strftime("%Y-%m")
+                                    else:
+                                        try: ml = _dt2.strptime(str(mv)[:7], "%Y-%m").strftime("%Y-%m")
+                                        except: ml = str(mv)[:7]
+                                    if ml not in month_set:
+                                        month_set.append(ml)
+                                    if ml not in _month_display:
+                                        try: _month_display[ml] = _dt2.strptime(ml, "%Y-%m").strftime("%b %Y")
+                                        except: _month_display[ml] = ml
+                                month_labels = sorted(month_set)
 
-                                # Aggregate IS
+                                # Aggregate IS — use normalized month keys
                                 is_agg = defaultdict(lambda: defaultdict(float))
                                 is_group_sec = {}
                                 for ri in range(2, ws_is.max_row+1):
@@ -237,8 +251,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     if not grp:
                                         continue
                                     mv = ws_is.cell(ri, month_col).value
+                                    if mv is None:
+                                        continue
+                                    if hasattr(mv, 'strftime'):
+                                        ml = mv.strftime("%Y-%m")
+                                    else:
+                                        try: ml = _dt2.strptime(str(mv)[:7], "%Y-%m").strftime("%Y-%m")
+                                        except: ml = str(mv)[:7]
                                     amt = float(ws_is.cell(ri, amount_col).value or 0)
-                                    is_agg[grp][mv] += amt
+                                    is_agg[grp][ml] += amt
                                     if sec_col and grp not in is_group_sec:
                                         is_group_sec[grp] = ws_is.cell(ri, sec_col).value or ""
 
@@ -255,8 +276,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws.cell(cr, 1, "Group").font = HDR_FONT; ws.cell(cr, 1).fill = HDR_FILL
                                 ws.cell(cr, 2, "Section").font = HDR_FONT; ws.cell(cr, 2).fill = HDR_FILL
                                 for ci, ml in enumerate(month_labels, 3):
-                                    label = ml.strftime("%b %Y") if hasattr(ml, 'strftime') else str(ml)[:7]
-                                    c = ws.cell(cr, ci, label)
+                                    c = ws.cell(cr, ci, _month_display.get(ml, ml))
                                     c.font = HDR_FONT; c.fill = HDR_FILL; c.alignment = Alignment(horizontal="center")
                                 tc = len(month_labels) + 3
                                 ws.cell(cr, tc, "Total").font = HDR_FONT; ws.cell(cr, tc).fill = HDR_FILL
@@ -291,7 +311,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         lbl = str(ws_pl.cell(pri, 1).value or "").strip().lower()
                                         if lbl in ("net income", "net earnings"):
                                             for ci, ml in enumerate(month_labels, 3):
-                                                ml_s = ml.strftime("%b %Y") if hasattr(ml, 'strftime') else str(ml)[:7]
+                                                ml_s = _month_display.get(ml, ml)
                                                 for pci, ph in enumerate(pl_hdr):
                                                     if str(ph or "") == ml_s or ml_s in str(ph or ""):
                                                         pv = ws_pl.cell(pri, pci+1).value
@@ -326,10 +346,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     continue
 
                                 bs_months = []
+                                _bs_display = {}
                                 for ri in range(2, ws_bsb.max_row+1):
                                     dv = ws_bsb.cell(ri, bs_dc).value
-                                    if dv and dv not in bs_months:
-                                        bs_months.append(dv)
+                                    if dv is None:
+                                        continue
+                                    ml = dv.strftime("%Y-%m-%d") if hasattr(dv, 'strftime') else str(dv)
+                                    if ml not in bs_months:
+                                        bs_months.append(ml)
+                                    if ml not in _bs_display:
+                                        _bs_display[ml] = dv.strftime("%b %d, %Y") if hasattr(dv, 'strftime') else str(dv)
 
                                 bs_agg = defaultdict(lambda: defaultdict(float))
                                 bs_gs = {}
@@ -337,8 +363,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     grp = ws_bsb.cell(ri, bs_gc).value
                                     if not grp: continue
                                     dv = ws_bsb.cell(ri, bs_dc).value
+                                    if dv is None: continue
+                                    ml = dv.strftime("%Y-%m-%d") if hasattr(dv, 'strftime') else str(dv)
                                     bal = float(ws_bsb.cell(ri, bs_bc).value or 0)
-                                    bs_agg[grp][dv] += bal
+                                    bs_agg[grp][ml] += bal
                                     if bs_sc and grp not in bs_gs:
                                         bs_gs[grp] = ws_bsb.cell(ri, bs_sc).value or ""
 
@@ -354,7 +382,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws.cell(cr, 1, "Group").font = HDR_FONT; ws.cell(cr, 1).fill = HDR_FILL
                                 ws.cell(cr, 2, "Section").font = HDR_FONT; ws.cell(cr, 2).fill = HDR_FILL
                                 for ci, ml in enumerate(bs_months, 3):
-                                    label = ml.strftime("%b %d, %Y") if hasattr(ml, 'strftime') else str(ml)
+                                    label = _bs_display.get(ml, ml)
                                     c = ws.cell(cr, ci, label)
                                     c.font = HDR_FONT; c.fill = HDR_FILL; c.alignment = Alignment(horizontal="center")
                                 cr += 1
