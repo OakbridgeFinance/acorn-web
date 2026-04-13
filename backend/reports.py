@@ -123,7 +123,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     if maps_to_apply:
                         import openpyxl as _ox
                         from openpyxl.styles import Font, PatternFill, Alignment
-                        from openpyxl.utils import get_column_letter
+                        from openpyxl.utils import get_column_letter, column_index_from_string
                         import re as _re_map
                         from copy import copy as _copy
 
@@ -146,9 +146,26 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         out[name] = (gname, sect)
                             return out
 
-                        n = len(maps_to_apply)
+                        def _patch_col_refs(formula, tab_name, num_inserted, insert_pos=2):
+                            """Shift column references >= insert_pos in formulas referencing tab_name."""
+                            def _shift(match):
+                                col_letter = match.group(1)
+                                sep = match.group(2)
+                                col_idx = column_index_from_string(col_letter)
+                                if col_idx >= insert_pos:
+                                    col_idx += num_inserted
+                                return get_column_letter(col_idx) + sep
+                            escaped = _re_map.escape(tab_name)
+                            pattern = _re_map.compile(rf"'{escaped}'!([A-Z]+)([:0-9])")
+                            return pattern.sub(
+                                lambda m: f"'{tab_name}'!" + _shift(m),
+                                formula
+                            )
 
-                        # ── GL Detail tabs — append at end ──────────────────
+                        n = len(maps_to_apply)
+                        nc = n * 2  # number of new columns
+
+                        # ── GL Detail tabs — insert after Account Name ──────
                         for tab in ("IS GL Detail", "BS GL Detail"):
                             if tab not in wb.sheetnames:
                                 continue
@@ -157,7 +174,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if "Account Name" not in hdr:
                                 continue
                             acct_col = hdr.index("Account Name") + 1
-                            base     = ws.max_column + 1
+                            ws.insert_cols(acct_col + 1, nc)
+                            base = acct_col + 1
 
                             for mi, m in enumerate(maps_to_apply):
                                 lkp  = build_lookup(m)
@@ -165,7 +183,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 sc   = base + mi*2 + 1
                                 mname = m.get("map_name","")
 
-                                ws.cell(1, gc, f"{mname} - Account Group").font   = HDR_FONT
+                                ws.cell(1, gc, f"{mname} - Account Group").font = HDR_FONT
                                 ws.cell(1, gc).fill = HDR_FILL
                                 ws.cell(1, sc, f"{mname} - Statement Section").font = HDR_FONT
                                 ws.cell(1, sc).fill = HDR_FILL
@@ -196,7 +214,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if tab not in wb.sheetnames:
                                 continue
                             ws = wb[tab]
-                            ws.insert_cols(2, n*2)
+                            ws.insert_cols(2, nc)
 
                             for mi, m in enumerate(maps_to_apply):
                                 lkp   = build_lookup(m)
@@ -229,32 +247,66 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         ws.cell(ri, gc, match[0])
                                         ws.cell(ri, sc, match[1])
 
-                        # ── Patch Validation XLOOKUP formulas ───────────────
+                        # ── Patch Validation formulas ───────────────────────
                         if "Validation" in wb.sheetnames:
                             ws_v = wb["Validation"]
-                            new_pl_col = get_column_letter(pl_total_before + n*2) if pl_total_before else None
-                            new_bs_col = get_column_letter(bs_last_before  + n*2) if bs_last_before  else None
+                            new_pl_col = get_column_letter(pl_total_before + nc) if pl_total_before else None
+                            new_bs_col = get_column_letter(bs_last_before  + nc) if bs_last_before  else None
                             patched = 0
+
                             for ri in range(1, ws_v.max_row+1):
+                                # Patch col D (QBO Report Value)
                                 cell = ws_v.cell(ri, 4)
-                                f    = cell.value
-                                if not f or not isinstance(f, str) or not f.startswith("="):
-                                    continue
-                                orig = f
-                                if new_pl_col and "'P&L'!" in f:
-                                    refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", f))
-                                    if refs:
-                                        last = refs[-1]
-                                        f = f[:last.start()] + f"'P&L'!{new_pl_col}:{new_pl_col}" + f[last.end():]
-                                if new_bs_col and "'Balance Sheet'!" in f:
-                                    refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", f))
-                                    if refs:
-                                        last = refs[-1]
-                                        f = f[:last.start()] + f"'Balance Sheet'!{new_bs_col}:{new_bs_col}" + f[last.end():]
-                                if f != orig:
-                                    cell.value = f
-                                    patched += 1
-                            logger.info(f"Validation: patched {patched} formulas, P&L col={new_pl_col}, BS col={new_bs_col}")
+                                f = cell.value
+                                if f and isinstance(f, str) and f.startswith("="):
+                                    orig = f
+                                    # P&L: only replace LAST col ref (return array)
+                                    if new_pl_col and "'P&L'!" in f:
+                                        refs = list(_re_map.finditer(r"'P&L'!([A-Z]+):([A-Z]+)", f))
+                                        if refs:
+                                            last = refs[-1]
+                                            f = f[:last.start()] + f"'P&L'!{new_pl_col}:{new_pl_col}" + f[last.end():]
+                                    # Balance Sheet: only replace LAST col ref
+                                    if new_bs_col and "'Balance Sheet'!" in f:
+                                        refs = list(_re_map.finditer(r"'Balance Sheet'!([A-Z]+):([A-Z]+)", f))
+                                        if refs:
+                                            last = refs[-1]
+                                            f = f[:last.start()] + f"'Balance Sheet'!{new_bs_col}:{new_bs_col}" + f[last.end():]
+                                    if f != orig:
+                                        cell.value = f
+                                        patched += 1
+
+                                # Patch col C (GL Value Live) — BS Balances refs
+                                cell_c = ws_v.cell(ri, 3)
+                                fc = cell_c.value
+                                if fc and isinstance(fc, str) and fc.startswith("=") and "'BS Balances'!" in fc:
+                                    orig_c = fc
+                                    refs = list(_re_map.finditer(r"'BS Balances'!([A-Z]+):([A-Z]+)", fc))
+                                    for ref in reversed(refs):
+                                        old_idx = column_index_from_string(ref.group(1))
+                                        if old_idx >= 2:
+                                            new_letter = get_column_letter(old_idx + nc)
+                                            fc = fc[:ref.start()] + f"'BS Balances'!{new_letter}:{new_letter}" + fc[ref.end():]
+                                    # Also patch IS GL Detail refs in col C
+                                    if fc != orig_c:
+                                        cell_c.value = fc
+                                        patched += 1
+
+                                # Patch IS GL Detail refs in col C
+                                if fc and isinstance(fc, str) and fc.startswith("=") and "'IS GL Detail'!" in fc:
+                                    fc2 = cell_c.value or fc
+                                    orig_c2 = fc2
+                                    refs = list(_re_map.finditer(r"'IS GL Detail'!([A-Z]+):([A-Z]+)", fc2))
+                                    for ref in reversed(refs):
+                                        old_idx = column_index_from_string(ref.group(1))
+                                        if old_idx > acct_col if 'acct_col' in dir() else old_idx >= 2:
+                                            new_letter = get_column_letter(old_idx + nc)
+                                            fc2 = fc2[:ref.start()] + f"'IS GL Detail'!{new_letter}:{new_letter}" + fc2[ref.end():]
+                                    if fc2 != orig_c2:
+                                        cell_c.value = fc2
+                                        patched += 1
+
+                            logger.info(f"Validation: patched {patched} formulas")
 
                         wb.save(file_path)
                         progress_fn("  Mapping columns appended.")
