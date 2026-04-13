@@ -546,34 +546,38 @@ function onPeriodChange() {
 // ── Mapping selection ────────────────────────────────────────────────────────
 async function loadMappingSelection(realmId) {
   const body = $('mappingSelectionBody');
-  if (!body) return;
+  if (!body || !realmId) return;
   try {
     const res = await fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() });
     const data = await res.json();
     const maps = data.account_maps || [];
     if (!maps.length) {
-      body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">' +
-        'No custom mappings configured \u2014 QBO default account structure. ' +
-        '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Set up custom Account Mapping \u2192</a>' +
-        '</div>';
+      body.innerHTML =
+        '<div style="font-size:13px;color:var(--text-light);line-height:1.6">' +
+        'No custom mappings configured \u2014 QBO default account structure.</div>' +
+        '<div style="margin-top:6px"><a href="#" onclick="showMappingPage()" ' +
+        'style="color:var(--accent);font-size:13px">Set up custom Account Mapping \u2192</a></div>';
       return;
     }
-    body.innerHTML = maps.map((m, i) =>
-      '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px">' +
-      '<input type="checkbox" id="mapCheck_' + i + '" value="' + escHtml(m.map_name) + '" checked ' +
-      'style="width:14px;height:14px;accent-color:var(--accent)">' +
-      escHtml(m.map_name) +
-      '</label>'
-    ).join('');
+    body.innerHTML =
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+      '<select id="mappingDropdown" class="select" style="max-width:300px">' +
+      '<option value="">None (QBO default structure)</option>' +
+      maps.map((m, i) => '<option value="' + i + '">' + escHtml(m.map_name || 'Unnamed') + '</option>').join('') +
+      '</select>' +
+      '<span style="font-size:12px;color:var(--text-light)">' +
+      maps.length + ' mapping' + (maps.length > 1 ? 's' : '') + ' available \u00b7 ' +
+      '<a href="#" onclick="showMappingPage()" style="color:var(--accent)">Manage</a>' +
+      '</span></div>';
   } catch (e) {
     body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Could not load mappings.</div>';
   }
 }
 
-function getSelectedMaps() {
-  return Array.from(
-    document.querySelectorAll('#mappingSelectionBody input[type=checkbox]:checked')
-  ).map(cb => cb.value);
+function getSelectedMap() {
+  const dd = $('mappingDropdown');
+  if (!dd || dd.value === '') return '';
+  return dd.options[dd.selectedIndex]?.text || '';
 }
 
 // ── Generate ────────────────────────────────────────────────────────────────
@@ -606,7 +610,7 @@ async function generate() {
         start_date:    startDate,
         end_date:      endDate,
         dimension:     $('liteGlDimension')?.value || 'none',
-        selected_maps: getSelectedMaps(),
+        selected_map:  getSelectedMap(),
       }),
     });
     const data = await res.json();

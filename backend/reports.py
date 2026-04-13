@@ -30,10 +30,11 @@ def get_supabase():
 
 
 class GenerateRequest(BaseModel):
-    realm_id:   str
-    start_date: str
-    end_date:   str
-    dimension:  str = "none"
+    realm_id:     str
+    start_date:   str
+    end_date:     str
+    dimension:    str = "none"
+    selected_map: str = ""
 
 
 def run_report_job(job_id: str, user_id: str, realm_id: str,
