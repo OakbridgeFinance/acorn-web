@@ -328,6 +328,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         wb.save(file_path)
                         progress_fn(f"  Mapping columns appended.")
                 except Exception as e:
+                    import traceback
+                    logger.error(f"Mapping failed: {e}")
+                    logger.error(traceback.format_exc())
                     progress_fn(f"  WARNING: Could not apply mappings — {e}")
 
             # Upload to Supabase storage
