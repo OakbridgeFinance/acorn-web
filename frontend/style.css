@@ -1940,6 +1940,7 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .maps-account-item:hover { background: var(--bg); }
 .maps-account-item.assigned { opacity: 0.35; cursor: default; }
 .maps-account-item.dragging { opacity: 0.4; }
+.maps-account-item.selected { background: rgba(201, 123, 47, 0.12) !important; outline: 1px solid var(--accent); border-radius: var(--radius-sm); }
 .maps-acct-type { color: var(--text-dim); font-size: 11px; flex-shrink: 0; width: 110px; min-width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .maps-acct-name { flex: 1; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .maps-acct-activity { margin-left: auto; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }

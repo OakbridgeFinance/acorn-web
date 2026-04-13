@@ -258,6 +258,7 @@
           <div class="maps-panel maps-panel--accounts" id="mapsPanelAccounts">
             <div class="maps-panel-header" style="flex-wrap:wrap;">
               <span class="maps-panel-title">QBO Accounts</span>
+              <span style="font-size:10px;color:var(--text-light);font-weight:400;margin-left:6px">Ctrl+click to multi-select</span>
               <div style="display:flex; gap:6px; width:100%; margin-top:6px;">
                 <select class="input maps-filter-select" id="mapsAccountFilter" onchange="mapsRenderAccounts()">
                   <option value="all">All</option>
@@ -782,6 +783,7 @@ const _BS_ACCOUNT_TYPES = new Set(['Bank', 'Accounts Receivable', 'Other Current
   'Accounts Payable', 'Credit Card', 'Other Current Liability', 'Long Term Liability', 'Equity']);
 
 let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, activityTotals: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
+let _mapsSelectedAccounts = new Set();
 
 function _getRealmId() { return state.realmId; }
 
@@ -899,6 +901,7 @@ function mapsOpenEditor() {
 }
 
 function mapsCloseEditor() {
+  _mapsSelectedAccounts.clear();
   hide('mapsEditor'); show('mapsListView');
   mapsState.editing = null;
   mapsRenderList();
@@ -967,6 +970,7 @@ function mapsRenderAll() {
 }
 
 function mapsSetStatement(stmt) {
+  _mapsSelectedAccounts.clear();
   mapsState.statement = stmt;
   document.querySelectorAll('.maps-stmt-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.stmt === stmt);
@@ -1034,7 +1038,8 @@ function mapsRenderAccounts() {
     const num = (a.acct_num || '').trim();
     const displayName = num ? `${num} ${name}` : name;
     const isAssigned = assigned.has(displayName);
-    const cls = isAssigned ? 'maps-account-item assigned' : 'maps-account-item';
+    const isSelected = _mapsSelectedAccounts.has(displayName);
+    const cls = 'maps-account-item' + (isAssigned ? ' assigned' : '') + (isSelected ? ' selected' : '');
     const draggable = isAssigned ? '' : 'draggable="true"';
     const bsKey = '__bs__' + name;
     const indent = hasIndents
@@ -1047,7 +1052,8 @@ function mapsRenderAccounts() {
     const amt = hasActivity ? Math.abs(_getAcctTotal(name, displayName)) : null;
     const amtFmt = amt != null ? (amt >= 1 ? '$' + Math.round(amt).toLocaleString() : '\u2014') : '';
     return `<div class="${cls}" ${draggable}
-                 ondragstart="mapsDragStart(event, '${escHtml(name)}', '${escHtml(displayName)}')"
+                 onclick="mapsAccountClick(event, '${escHtml(displayName)}')"
+                 ondragstart="mapsDragStartMulti(event, '${escHtml(name)}', '${escHtml(displayName)}')"
                  data-acct="${escHtml(name)}"
                  style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
       <span class="maps-acct-type">${escHtml(a.type || '')}</span>
@@ -1170,6 +1176,30 @@ function mapsRenderSummary() {
   }
 }
 
+function mapsAccountClick(e, displayName) {
+  const assigned = _mapsAssignedSet();
+  if (assigned.has(displayName)) return;
+  if (e.ctrlKey || e.metaKey) {
+    if (_mapsSelectedAccounts.has(displayName)) _mapsSelectedAccounts.delete(displayName);
+    else _mapsSelectedAccounts.add(displayName);
+  } else {
+    _mapsSelectedAccounts.clear();
+    _mapsSelectedAccounts.add(displayName);
+  }
+  mapsRenderAccounts();
+}
+
+function mapsDragStartMulti(e, acctName, displayName) {
+  if (!_mapsSelectedAccounts.has(displayName)) {
+    _mapsSelectedAccounts.clear();
+    _mapsSelectedAccounts.add(displayName);
+    mapsRenderAccounts();
+  }
+  e.dataTransfer.setData('text/plain', JSON.stringify({ name: acctName, display_name: displayName }));
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.classList.add('dragging');
+}
+
 function mapsDragStart(e, acctName, displayName) {
   e.dataTransfer.setData('text/plain', JSON.stringify({ name: acctName, display_name: displayName || acctName }));
   e.dataTransfer.effectAllowed = 'move';
@@ -1184,22 +1214,41 @@ function mapsDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
 function mapsDrop(e, groupIdx) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
-  const raw = e.dataTransfer.getData('text/plain');
-  if (!raw) return;
-  let acctName, displayName;
-  try {
-    const data = JSON.parse(raw);
-    acctName = data.name;
-    displayName = data.display_name || acctName;
-  } catch { acctName = raw; displayName = raw; }
-  if (!acctName) return;
-  for (const g of mapsState.groups) {
-    g.accounts = (g.accounts || []).filter(a => {
-      const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
-      return dn !== displayName;
-    });
+
+  // Collect accounts to add — use multi-selection if available
+  const accountsToAdd = [];
+  if (_mapsSelectedAccounts.size > 0) {
+    // Build name→displayName lookup from allAccounts
+    const lookup = {};
+    for (const a of mapsState.allAccounts) {
+      const num = (a.acct_num || '').trim();
+      const dn = num ? num + ' ' + a.name : a.name;
+      lookup[dn] = a.name;
+    }
+    for (const dn of _mapsSelectedAccounts) {
+      accountsToAdd.push({ name: lookup[dn] || dn, display_name: dn });
+    }
+  } else {
+    const raw = e.dataTransfer.getData('text/plain');
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      accountsToAdd.push({ name: data.name, display_name: data.display_name || data.name });
+    } catch { accountsToAdd.push({ name: raw, display_name: raw }); }
   }
-  mapsState.groups[groupIdx].accounts.push({ name: acctName, display_name: displayName });
+
+  for (const acct of accountsToAdd) {
+    // Remove from any existing group
+    for (const g of mapsState.groups) {
+      g.accounts = (g.accounts || []).filter(a => {
+        const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
+        return dn !== acct.display_name;
+      });
+    }
+    mapsState.groups[groupIdx].accounts.push(acct);
+  }
+
+  _mapsSelectedAccounts.clear();
   mapsRenderAll();
 }
 
