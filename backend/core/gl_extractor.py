@@ -1128,9 +1128,27 @@ def _fetch_qbo_report_totals(
 
 _ACCT_NUM_COLS = {"Account Number", "Account #", "Num"}
 
+# ── Acorn output formatting constants ────────────────────────────────────────
+from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _AL, Border as _Bdr, Side as _Sd
+
+_ARIAL     = "Arial"
+_FONT_SIZE = 10
+_HDR_COLOR = "07393C"
+_ACCT_FMT  = '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)'
+
+def _f(bold=False, color="000000"):
+    return _Font(name=_ARIAL, size=_FONT_SIZE, bold=bold, color=color)
+
+HDR_FONT   = _f(bold=True, color="FFFFFF")
+HDR_FILL   = _PF("solid", fgColor=_HDR_COLOR)
+PLAIN_FONT = _f()
+BOLD_FONT  = _f(bold=True)
+GRAY_FILL  = _PF("solid", fgColor="F2F2F2")
+NO_FILL    = _PF(fill_type=None)
+
 def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
-    """Write rows to a worksheet with bold header, dates as M/D/YYYY, amounts as numbers."""
-    from openpyxl.styles import Font
+    """Write rows to a worksheet with formatted header, dates, and amounts."""
+    from openpyxl.styles import Alignment
 
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
@@ -1139,28 +1157,26 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
         return
 
     header = rows[0]
-    f_bold = Font(bold=True)
-
-    # Identify which columns are account numbers (format as plain integer, no comma)
-    acct_num_cols = set()
-    for ci, col_name in enumerate(header):
-        if col_name in _ACCT_NUM_COLS:
-            acct_num_cols.add(ci)
+    acct_num_cols = {ci for ci, h in enumerate(header) if h in _ACCT_NUM_COLS}
 
     for ci, col_name in enumerate(header, 1):
         c = ws.cell(row=1, column=ci, value=col_name)
-        c.font = f_bold
+        c.font      = HDR_FONT
+        c.fill      = HDR_FILL
+        c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
+                                vertical="center")
 
     for ri, row in enumerate(rows[1:], 2):
         for ci, val in enumerate(row, 1):
             c = ws.cell(row=ri, column=ci, value=val)
+            c.font = PLAIN_FONT
             if isinstance(val, date):
                 c.number_format = "M/D/YYYY"
             elif isinstance(val, (int, float)):
                 if (ci - 1) in acct_num_cols:
                     c.number_format = "0"
                 else:
-                    c.number_format = "#,##0.00"
+                    c.number_format = _ACCT_FMT
 
 
 def _write_validation_sheet(
@@ -1491,19 +1507,12 @@ def _write_report_sheet(
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
 
-    HEADER_BG  = PatternFill("solid", fgColor="1F4E79")
-    SECTION_BG = PatternFill("solid", fgColor="D9E1F2")
-    SUBTOT_BG  = PatternFill("solid", fgColor="EEF2F7")
-    BOLD_WHITE = Font(bold=True, color="FFFFFF")
-    BOLD       = Font(bold=True)
-    NUM_FMT    = "#,##0.00"
-
     # Header row
     header = rows[0]
     for ci, val in enumerate(header, 1):
         c = ws.cell(row=1, column=ci, value=val)
-        c.font      = BOLD_WHITE
-        c.fill      = HEADER_BG
+        c.font      = HDR_FONT
+        c.fill      = HDR_FILL
         c.alignment = Alignment(horizontal="center" if ci > 1 else "left")
 
     GRANDTOTAL_KEYWORDS = {
@@ -1516,44 +1525,50 @@ def _write_report_sheet(
         try:
             if not row:
                 continue
-            # P&L rows have a hidden row_type appended as the last element for lookup use
-            # Strip it before writing — header has len(header) cols, data rows have len+1
             num_data_cols = len(rows[0])
             if len(row) > num_data_cols:
                 row = row[:num_data_cols]
-            label = str(row[0] or "")
-            bare  = label.strip().lower()
-            indent_level = (len(label) - len(label.lstrip())) // 2
+
+            label     = str(row[0] or "")
+            bare      = label.strip().lower()
+            indent_lv = (len(label) - len(label.lstrip())) // 2
 
             is_grandtotal = bare in GRANDTOTAL_KEYWORDS
-            is_subtotal   = any(bare.startswith(p) for p in SUBTOTAL_PREFIXES) and not is_grandtotal
-            is_header     = indent_level == 0 and not is_grandtotal and not is_subtotal
+            is_subtotal   = (any(bare.startswith(p) for p in SUBTOTAL_PREFIXES)
+                             and not is_grandtotal)
+            is_header     = (indent_lv == 0
+                             and not is_grandtotal
+                             and not is_subtotal
+                             and not any(c.isdigit() for c in bare[:5]))
 
             for ci in range(1, len(row) + 1):
                 val = row[ci - 1] if (ci - 1) < len(row) else None
                 if val is not None and not isinstance(val, (str, int, float, date)):
                     val = str(val)
-                # Strip leading spaces from account name — use Excel indent instead
-                # This keeps XLOOKUP exact matching working on the Validation tab
                 if ci == 1 and isinstance(val, str):
                     val = val.strip()
+
                 c = ws.cell(row=ri, column=ci, value=val)
+                c.font = BOLD_FONT if (is_grandtotal or is_subtotal or is_header) else PLAIN_FONT
+
                 if ci == 1:
-                    # Use Excel's indent property instead of leading spaces
-                    c.alignment = Alignment(horizontal="left", indent=indent_level)
+                    c.alignment = Alignment(horizontal="left", indent=indent_lv)
                 elif isinstance(val, (int, float)):
-                    c.number_format = NUM_FMT
+                    c.number_format = _ACCT_FMT
                     c.alignment     = Alignment(horizontal="right")
+
                 if is_grandtotal:
-                    c.font = BOLD
-                    if ci == 1:
-                        c.border = Border(top=Side(style="thin"), bottom=Side(style="thin"))
+                    c.fill   = NO_FILL
+                    c.border = Border(top=Side(style="thin"),
+                                      bottom=Side(style="double"))
                 elif is_subtotal:
-                    c.font = BOLD
-                    c.fill = SUBTOT_BG
+                    c.fill   = NO_FILL
+                    c.border = Border(top=Side(style="thin"))
                 elif is_header:
-                    c.font = BOLD
-                    c.fill = SECTION_BG
+                    c.fill = GRAY_FILL
+                else:
+                    c.fill = NO_FILL
+
         except Exception as e:
             print(f"  WARNING: _write_report_sheet skipped row {ri}: {e}")
             continue
