@@ -57,8 +57,7 @@
             </svg>
             Back
           </button>
-          <h1 class="page-title">Acorn</h1>
-          <p class="page-sub" id="liteClientSub"></p>
+          <h1 class="page-title" id="litePageTitle">Select a Company</h1>
         </div>
       </div>
 
@@ -212,9 +211,7 @@
           </button>
           <h1 class="page-title">Account Maps</h1>
           <p class="page-sub" id="mapsClientSub"></p>
-        </div>
-        <div class="page-header-right" style="display:flex;align-items:center;gap:10px;">
-          <button class="btn-outline" id="mapsNewBtn" onclick="mapsNew()">+ New Map</button>
+          <button class="btn-outline" id="mapsNewBtn" onclick="mapsNew()" style="margin-top:12px;">+ New Map</button>
         </div>
       </div>
 
@@ -438,8 +435,8 @@ function selectClient(realmId, companyName) {
   // Always navigate to extraction page when switching clients
   showReportPage();
 
-  const sub = $('liteClientSub');
-  if (sub) sub.textContent = companyName + '  \u00b7  QBO';
+  const title = $('litePageTitle');
+  if (title) title.textContent = companyName;
 
   // Show report form, hide landing
   const landing = $('liteLanding');
@@ -463,6 +460,9 @@ function goBack() {
   const form    = $('liteReportForm');
   if (landing) { landing.style.display = '';     landing.classList.remove('hidden'); }
   if (form)    { form.style.display    = 'none'; form.classList.add('hidden'); }
+
+  const title = $('litePageTitle');
+  if (title) title.textContent = 'Select a Company';
 }
 
 // ── QBO OAuth ───────────────────────────────────────────────────────────────
