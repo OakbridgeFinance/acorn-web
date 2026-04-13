@@ -1130,10 +1130,10 @@ function mapsRenderGroups() {
     const nameInput = isUnassigned
       ? `<span class="maps-group-name-input" style="font-style:italic;">Unassigned</span>`
       : `<input class="maps-group-name-input" value="${escHtml(g.group_name || '')}"
-                placeholder="Group name" onchange="mapsRenameGroup(${gi}, this.value)" />`;
+                placeholder="Group name *" onchange="mapsRenameGroup(${gi}, this.value)" />`;
     const sectionSel = isUnassigned ? '' : `
       <select class="maps-group-section" onchange="mapsSetSection(${gi}, this.value)">
-        <option value="">\u2014 ${sectionLabel} \u2014</option>
+        <option value="">\u2014 ${sectionLabel} * \u2014</option>
         ${sections.map(s => `<option value="${escHtml(s)}"${s === g.pl_section ? ' selected' : ''}>${escHtml(s)}</option>`).join('')}
       </select>`;
     const deleteBtn = isUnassigned ? '' :
@@ -1319,8 +1319,17 @@ function mapsRemoveGroup(gi) {
   mapsState.groups.splice(gi, 1);
   mapsRenderAll();
 }
-function mapsRenameGroup(gi, name) { mapsState.groups[gi].group_name = name; }
-function mapsSetSection(gi, section) { mapsState.groups[gi].pl_section = section; mapsRenderSummary(); }
+function mapsRenameGroup(gi, name) {
+  mapsState.groups[gi].group_name = name;
+  const cards = document.querySelectorAll('#mapsGroupList .maps-group');
+  if (cards[gi]) { cards[gi].style.border = ''; cards[gi].style.background = ''; }
+}
+function mapsSetSection(gi, section) {
+  mapsState.groups[gi].pl_section = section;
+  const cards = document.querySelectorAll('#mapsGroupList .maps-group');
+  if (cards[gi]) { cards[gi].style.border = ''; cards[gi].style.background = ''; }
+  mapsRenderSummary();
+}
 function mapsRemoveAcct(gi, ai) { mapsState.groups[gi].accounts.splice(ai, 1); mapsRenderAll(); }
 
 async function mapsApplyFilter() {
@@ -1359,12 +1368,45 @@ async function mapsSaveEditor() {
   const mapName = (val('mapsEditorName') || '').trim();
   if (!mapName) { alert('Map name is required.'); return; }
   const mapObj = _buildMapObj();
-  const missingSections = mapObj.groups.filter(g => !g.pl_section);
-  if (missingSections.length) {
-    const names = missingSections.map(g => g.group_name || '(unnamed)').join(', ');
-    alert('All groups must have a section assigned before saving.\n\nMissing section: ' + names);
+
+  // Validate all groups have name AND section
+  const invalidGroups = [];
+  mapObj.groups.forEach((g, i) => {
+    const hasName    = (g.group_name || '').trim().length > 0;
+    const hasSection = (g.pl_section || g.bs_section || '').length > 0;
+    if (!hasName || !hasSection) {
+      invalidGroups.push({ idx: i, missingName: !hasName, missingSection: !hasSection, grp: g });
+    }
+  });
+
+  if (invalidGroups.length > 0) {
+    const groupCards = document.querySelectorAll('#mapsGroupList .maps-group');
+    groupCards.forEach((card, i) => {
+      const isInvalid = invalidGroups.some(ig => ig.idx === i);
+      if (isInvalid) {
+        card.style.border = '2px solid #EF4444';
+        card.style.background = 'rgba(239,68,68,0.05)';
+      } else {
+        card.style.border = '';
+        card.style.background = '';
+      }
+    });
+    const messages = invalidGroups.map(ig => {
+      const issues = [];
+      if (ig.missingName)    issues.push('group name is required');
+      if (ig.missingSection) issues.push('statement section is required');
+      return 'Group ' + (ig.idx + 1) + ' "' + (ig.grp.group_name || 'unnamed') + '": ' + issues.join(', ');
+    });
+    alert('Cannot save \u2014 please fix the following:\n\n' + messages.join('\n'));
     return;
   }
+
+  // Clear highlights if all valid
+  document.querySelectorAll('#mapsGroupList .maps-group').forEach(card => {
+    card.style.border = '';
+    card.style.background = '';
+  });
+
   const isExisting = mapsState.editing?._idx != null;
   if (!isExisting || !mapsState.originalMap) {
     await _doSaveMap(mapObj, false);
