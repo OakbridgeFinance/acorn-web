@@ -176,6 +176,7 @@
             <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
           </button>
           <button class="btn-stop" id="btnLiteStop" style="display:none;" onclick="stopReport()">Stop</button>
+          <button class="btn-outline btn-sm" id="portalPrepBtn" style="display:none;" onclick="preparePortalFile()">Prepare Portal File</button>
         </div>
       </div>
 
@@ -359,6 +360,7 @@ async function refreshTokenIfNeeded() {
 // ── State ───────────────────────────────────────────────────────────────────
 let state = { realmId: null, companies: [], running: false, startTime: null, pollTimer: null };
 let _currentJobId = null;
+let isAdmin = true; // TODO: set from user metadata when auth supports it
 
 // ── Company list ────────────────────────────────────────────────────────────
 async function loadCompanies() {
@@ -637,6 +639,8 @@ async function generate() {
   clearLog();
   hideStatus();
   setRunning(true);
+  const pb = $('portalPrepBtn');
+  if (pb) pb.style.display = 'none';
 
   try {
     const res = await fetch(API + '/api/reports/generate', {
@@ -711,6 +715,11 @@ function pollJob(jobId) {
 
             $('saveAsBtn').onclick = function() { saveReportAs(job.file_url, suggestedName); };
           }
+        }
+        // Show portal prep button (admin only)
+        if (isAdmin) {
+          const pb = $('portalPrepBtn');
+          if (pb) { pb.style.display = 'inline-block'; pb.dataset.jobId = _currentJobId || job_id; }
         }
       } else if (job.status === 'failed') {
         clearInterval(state.pollTimer);
@@ -1507,6 +1516,61 @@ async function mapsDelete(idx) {
     mapsRenderList();
   } catch (e) {
     alert('Delete failed: ' + e.message);
+  }
+}
+
+// ── Portal File ─────────────────────────────────────────────────────────────
+async function preparePortalFile() {
+  const btn = $('portalPrepBtn');
+  const jobId = btn?.dataset?.jobId;
+  if (!jobId) return;
+
+  btn.textContent = 'Preparing...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(API + '/api/reports/prepare-portal/' + jobId, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed');
+
+    const portalJobId = data.portal_job_id;
+    const interval = setInterval(async () => {
+      try {
+        const sr = await fetch(API + '/api/reports/job/' + portalJobId, { headers: authHeaders() });
+        const sd = await sr.json();
+        if (sd.progress) btn.textContent = sd.progress;
+
+        if (sd.status === 'complete') {
+          clearInterval(interval);
+          btn.textContent = '\u2713 Portal File Ready';
+          btn.style.color = '#10B981';
+          btn.disabled = false;
+          if (sd.file_url) {
+            const a = document.createElement('a');
+            a.href = sd.file_url; a.click();
+          }
+          setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
+        } else if (sd.status === 'failed') {
+          clearInterval(interval);
+          btn.textContent = 'Failed: ' + (sd.error || 'unknown');
+          btn.style.color = '#EF4444';
+          btn.disabled = false;
+          setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
+        }
+      } catch (pe) {
+        clearInterval(interval);
+        btn.textContent = 'Polling error';
+        btn.disabled = false;
+      }
+    }, 2000);
+  } catch (e) {
+    btn.textContent = 'Error: ' + e.message;
+    btn.style.color = '#EF4444';
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
   }
 }
 
