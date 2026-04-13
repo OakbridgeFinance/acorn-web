@@ -177,6 +177,7 @@
             <span id="btnLiteLabel">Generate Report</span>
             <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
           </button>
+          <button class="btn-stop" id="btnLiteStop" style="display:none;margin-top:8px;width:100%;" onclick="stopReport()">Stop</button>
         </div>
       </div>
 
@@ -358,6 +359,7 @@ async function refreshTokenIfNeeded() {
 
 // ── State ───────────────────────────────────────────────────────────────────
 let state = { realmId: null, companies: [], running: false, startTime: null, pollTimer: null };
+let _currentJobId = null;
 
 // ── Company list ────────────────────────────────────────────────────────────
 async function loadCompanies() {
@@ -620,11 +622,16 @@ async function generate() {
     }
 
     appendLog('Job started. Generating report...');
+    _currentJobId = data.job_id;
+    const stopBtn = $('btnLiteStop');
+    if (stopBtn) stopBtn.style.display = '';
     pollJob(data.job_id);
 
   } catch (e) {
     showStatus('Error: ' + e.message, 'error');
     setRunning(false);
+    const stopBtn = $('btnLiteStop');
+    if (stopBtn) stopBtn.style.display = 'none';
   }
 }
 
@@ -734,15 +741,31 @@ function showSaveSuccess(msg) {
 }
 
 // ── UI helpers ──────────────────────────────────────────────────────────────
+async function stopReport() {
+  if (!_currentJobId) return;
+  try {
+    await fetch(API + '/api/reports/job/' + _currentJobId + '/cancel', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+  } catch (e) {}
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+  setRunning(false);
+  showStatus('Stopped by user.', 'warning');
+}
+
 function setRunning(running) {
   state.running = running;
   if (running) state.startTime = Date.now();
   const btn = $('btnLiteGenerate');
   const lbl = $('btnLiteLabel');
   const spinner = $('btnLiteSpinner');
+  const stopBtn = $('btnLiteStop');
   if (btn) btn.disabled = running;
   if (lbl) lbl.textContent = running ? 'Generating\u2026' : 'Generate Report';
   if (spinner) running ? show(spinner) : hide(spinner);
+  if (stopBtn) stopBtn.style.display = running ? '' : 'none';
+  if (!running) _currentJobId = null;
   const title = $('liteProgressTitle');
   if (title) {
     if (running) {

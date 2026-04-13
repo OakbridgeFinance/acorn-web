@@ -301,6 +301,16 @@ def get_job_status(job_id: str, user=Depends(get_current_user)):
     return job
 
 
+@router.post("/job/{job_id}/cancel")
+def cancel_job(job_id: str, user=Depends(get_current_user)):
+    """Mark a job as cancelled."""
+    job = get_job(job_id)
+    if not job or job["user_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    update_job(job_id, status="failed", error="Cancelled by user")
+    return {"cancelled": True}
+
+
 @router.get("/history")
 def job_history(user=Depends(get_current_user)):
     """Get recent jobs for the current user."""
