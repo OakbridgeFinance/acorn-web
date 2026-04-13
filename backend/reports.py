@@ -192,16 +192,22 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             for m in maps_to_apply:
                                 map_name = m.get("map_name", "")
+
+                                # Build lookup: account_name string -> (group_name, section)
                                 lookup = {}
                                 for grp in m.get("groups", []):
                                     group_name = grp.get("group_name", "")
-                                    section = grp.get("pl_section") or grp.get("bs_section") or ""
+                                    section    = grp.get("pl_section") or grp.get("bs_section") or ""
                                     for acct in grp.get("accounts", []):
-                                        acct_name = (acct.get("account_name", "") if isinstance(acct, dict) else str(acct)).strip()
+                                        if isinstance(acct, dict):
+                                            acct_name = acct.get("account_name", "").strip()
+                                        else:
+                                            acct_name = str(acct).strip()
                                         if acct_name:
                                             lookup[acct_name] = (group_name, section)
-                                logger.info(f"  Map '{map_name}': lookup has {len(lookup)} entries, sample: {list(lookup.items())[:3]}")
-                                logger.info(f"  Lookup key samples: {[repr(k) for k in list(lookup.keys())[:5]]}")
+
+                                logger.info(f"  Map '{map_name}': lookup has {len(lookup)} entries")
+                                logger.info(f"  lookup keys sample: {list(lookup.keys())[:5]}")
 
                                 next_col = ws.max_column + 1
                                 grp_col = next_col
@@ -216,15 +222,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws.column_dimensions[get_column_letter(grp_col)].width = 24
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
+                                # Write values — exact string match, log first 20 rows for debug
                                 for ri in range(2, ws.max_row + 1):
-                                    acct_name = ws.cell(row=ri, column=acct_col_idx).value
-                                    if not acct_name:
+                                    cell_val = ws.cell(row=ri, column=acct_col_idx).value
+                                    if not cell_val:
                                         continue
-                                    acct_name = str(acct_name).strip()
+                                    acct_name = str(cell_val).strip()
+                                    if ri <= 21:
+                                        logger.info(f"  row {ri}: '{acct_name}' -> {lookup.get(acct_name, 'NO MATCH')}")
                                     match = lookup.get(acct_name)
-                                    if not match:
-                                        bare = _re2.sub(r'^\d[\d.\-]*\s+', '', acct_name).strip()
-                                        match = lookup.get(bare)
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
