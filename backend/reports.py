@@ -486,10 +486,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             cr += 1
 
                             # BS header
-                            ws_sum.cell(cr, 1, "Group").font = HDR_FONT
+                            ws_sum.cell(cr, 1, "Section").font = HDR_FONT
                             ws_sum.cell(cr, 1).fill = HDR_FILL
-                            ws_sum.cell(cr, 2, "Section").font = HDR_FONT
-                            ws_sum.cell(cr, 2).fill = HDR_FILL
                             for ci, mk in enumerate(bs_month_keys, 3):
                                 c = ws_sum.cell(cr, ci, bs_month_display.get(mk, mk))
                                 c.font = HDR_FONT
@@ -497,113 +495,92 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 c.alignment = Alignment(horizontal="center")
                             cr += 1
 
-                            # BS data rows — grouped by section, SUMIFS formulas
-                            cur_sec  = None
-                            sec_rows = defaultdict(list)  # section → list of data row numbers
-
+                            # Build section → groups lookup
+                            bs_sec_groups = {}
                             for gname, sec in bs_groups:
-                                if sec != cur_sec:
-                                    cur_sec = sec
-                                    # Section header row
-                                    c = ws_sum.cell(cr, 1, sec)
-                                    c.font = BOLD
-                                    c.fill = SEC_FILL
-                                    for ci in range(2, num_bs_mo + 3):
-                                        ws_sum.cell(cr, ci).fill = SEC_FILL
+                                if sec not in bs_sec_groups:
+                                    bs_sec_groups[sec] = []
+                                bs_sec_groups[sec].append(gname)
+
+                            ASSET_SECS = ["Current Assets", "Fixed Assets", "Other Assets"]
+                            LIAB_SECS  = ["Current Liabilities", "Long-term Liabilities"]
+                            EQ_SECS    = ["Equity"]
+
+                            def _bs_date_f(mk):
+                                mv = bs_month_dates.get(mk)
+                                if mv and hasattr(mv, 'year'):
+                                    return f"DATE({mv.year},{mv.month},{mv.day})"
+                                try:
+                                    d = _dt.strptime(mk[:10], "%Y-%m-%d")
+                                    return f"DATE({d.year},{d.month},{d.day})"
+                                except Exception:
+                                    return f'"{mk}"'
+
+                            def _bs_sumifs(groups_list, date_f):
+                                if not groups_list:
+                                    return "=0"
+                                parts = [
+                                    f"SUMIFS('BS Balances'!${bs_bal_col_l}:${bs_bal_col_l},"
+                                    f"'BS Balances'!${bs_grp_col_l}:${bs_grp_col_l},\"{g}\","
+                                    f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
+                                    for g in groups_list
+                                ]
+                                return "=" + "+".join(parts)
+
+                            def write_bs_block(sections_list, total_label):
+                                nonlocal cr
+                                sec_data_rows = []
+                                for sec in sections_list:
+                                    groups = bs_sec_groups.get(sec, [])
+                                    if not groups:
+                                        continue
+                                    ws_sum.cell(cr, 1, sec)
+                                    sec_data_rows.append(cr)
+                                    for ci, mk in enumerate(bs_month_keys, 3):
+                                        ws_sum.cell(cr, ci, _bs_sumifs(groups, _bs_date_f(mk))).number_format = NUM_FMT
                                     cr += 1
 
-                                sec_rows[sec].append(cr)
-                                ws_sum.cell(cr, 1, f"  {gname}")
-                                ws_sum.cell(cr, 2, sec)
+                                if not sec_data_rows:
+                                    return
 
-                                for ci, mk in enumerate(bs_month_keys, 3):
-                                    mv = bs_month_dates.get(mk)
-                                    if mv and hasattr(mv, 'year'):
-                                        date_f = f"DATE({mv.year},{mv.month},{mv.day})"
-                                    else:
-                                        try:
-                                            d      = _dt.strptime(mk[:10], "%Y-%m-%d")
-                                            date_f = f"DATE({d.year},{d.month},{d.day})"
-                                        except Exception:
-                                            date_f = f'"{mk}"'
-                                    f = (f"=SUMIFS('BS Balances'!${bs_bal_col_l}:${bs_bal_col_l},"
-                                         f"'BS Balances'!${bs_grp_col_l}:${bs_grp_col_l},"
-                                         f'"{gname}",'
-                                         f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},"
-                                         f"{date_f})")
-                                    ws_sum.cell(cr, ci, f).number_format = NUM_FMT
-                                cr += 1
-
-                            # Section subtotals (written after all groups)
-                            sec_subtotal_rows = {}
-                            for sec, rows in sec_rows.items():
-                                if not rows:
-                                    continue
-                                c = ws_sum.cell(cr, 1, f"Total {sec}")
-                                c.font = BOLD
-                                c.fill = SUBTOT_FILL
-                                ws_sum.cell(cr, 2).fill = SUBTOT_FILL
+                                # Total row
+                                total_row = cr
+                                ws_sum.cell(cr, 1, total_label).font = BOLD
                                 for ci in range(3, num_bs_mo + 3):
-                                    cl   = get_column_letter(ci)
-                                    refs = "+".join(f"{cl}{r}" for r in rows)
-                                    c = ws_sum.cell(cr, ci, f"={refs}")
-                                    c.number_format = NUM_FMT
-                                    c.font = BOLD
-                                    c.fill = SUBTOT_FILL
-                                sec_subtotal_rows[sec] = cr
+                                    cl = get_column_letter(ci)
+                                    refs = "+".join(f"{cl}{r}" for r in sec_data_rows)
+                                    ws_sum.cell(cr, ci, f"={refs}").number_format = NUM_FMT
+                                    ws_sum.cell(cr, ci).font = BOLD
                                 cr += 1
 
-                            # BS validation: Total Assets, Total Liabilities, Total Equity, Check
-                            ASSET_SECS  = {"Current Assets", "Fixed Assets", "Other Assets"}
-                            LIAB_SECS   = {"Current Liabilities", "Long-term Liabilities"}
-                            EQUITY_SECS = {"Equity"}
+                                # BS Balances reference row
+                                bs_ref_row = cr
+                                ws_sum.cell(cr, 1, f"{total_label} \u2014 per BS Balances").font = LINK_FONT
+                                all_grps = []
+                                for sec in sections_list:
+                                    all_grps.extend(bs_sec_groups.get(sec, []))
+                                for ci, mk in enumerate(bs_month_keys, 3):
+                                    c = ws_sum.cell(cr, ci, _bs_sumifs(all_grps, _bs_date_f(mk)))
+                                    c.number_format = NUM_FMT
+                                    c.font = LINK_FONT
+                                cr += 1
 
-                            cr += 1  # spacer
+                                # Difference row
+                                diff_row = cr
+                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = BOLD
+                                for ci in range(3, num_bs_mo + 3):
+                                    cl = get_column_letter(ci)
+                                    ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}").number_format = NUM_FMT
+                                dr = f"C{diff_row}:{get_column_letter(num_bs_mo + 2)}{diff_row}"
+                                ws_sum.conditional_formatting.add(dr,
+                                    CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
+                                ws_sum.conditional_formatting.add(dr,
+                                    CellIsRule(operator="equal", formula=["0"], font=GRN_FONT, fill=GRN_FILL))
+                                cr += 2
 
-                            ta_row = cr
-                            ws_sum.cell(cr, 1, "Total Assets").font = BOLD
-                            asset_refs = [r for s, r in sec_subtotal_rows.items() if s in ASSET_SECS]
-                            for ci in range(3, num_bs_mo + 3):
-                                cl = get_column_letter(ci)
-                                f  = "=" + "+".join(f"{cl}{r}" for r in asset_refs) if asset_refs else "=0"
-                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
-                                ws_sum.cell(cr, ci).font = BOLD
-                            cr += 1
-
-                            tl_row = cr
-                            ws_sum.cell(cr, 1, "Total Liabilities").font = BOLD
-                            liab_refs = [r for s, r in sec_subtotal_rows.items() if s in LIAB_SECS]
-                            for ci in range(3, num_bs_mo + 3):
-                                cl = get_column_letter(ci)
-                                f  = "=" + "+".join(f"{cl}{r}" for r in liab_refs) if liab_refs else "=0"
-                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
-                                ws_sum.cell(cr, ci).font = BOLD
-                            cr += 1
-
-                            te_row = cr
-                            ws_sum.cell(cr, 1, "Total Equity").font = BOLD
-                            eq_refs = [r for s, r in sec_subtotal_rows.items() if s in EQUITY_SECS]
-                            for ci in range(3, num_bs_mo + 3):
-                                cl = get_column_letter(ci)
-                                f  = "=" + "+".join(f"{cl}{r}" for r in eq_refs) if eq_refs else "=0"
-                                ws_sum.cell(cr, ci, f).number_format = NUM_FMT
-                                ws_sum.cell(cr, ci).font = BOLD
-                            cr += 1
-
-                            check_row = cr
-                            ws_sum.cell(cr, 1, "Check: Assets - Liab - Equity (should be zero)").font = BOLD
-                            for ci in range(3, num_bs_mo + 3):
-                                cl = get_column_letter(ci)
-                                ws_sum.cell(cr, ci,
-                                    f"={cl}{ta_row}-{cl}{tl_row}-{cl}{te_row}").number_format = NUM_FMT
-                            chk_range = f"C{check_row}:{get_column_letter(num_bs_mo + 2)}{check_row}"
-                            ws_sum.conditional_formatting.add(chk_range,
-                                CellIsRule(operator="notEqual", formula=["0"],
-                                           font=RED_FONT, fill=RED_FILL))
-                            ws_sum.conditional_formatting.add(chk_range,
-                                CellIsRule(operator="equal", formula=["0"],
-                                           font=GRN_FONT, fill=GRN_FILL))
-                            cr += 2
+                            write_bs_block(ASSET_SECS, "Total Assets")
+                            write_bs_block(LIAB_SECS, "Total Liabilities")
+                            write_bs_block(EQ_SECS, "Total Equity")
 
                         # Column widths for Map Summary
                         ws_sum.column_dimensions["A"].width = 28

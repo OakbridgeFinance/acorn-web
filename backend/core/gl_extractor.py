@@ -805,6 +805,7 @@ def _fetch_monthly_reports(
     bs_month_labels = [m.strftime("%b %Y") for m in months]
 
     first_month_accounts: set[str] = set()
+    valid_bs_accounts: set[str] = set()
 
     for mi, me_dt in enumerate(months):
         month_end = me_dt.isoformat()
@@ -843,20 +844,17 @@ def _fetch_monthly_reports(
                 bs_data[acct]["values"][mi] = amount
                 if mi == 0:
                     first_month_accounts.add(acct)
+            if mi == 0:
+                valid_bs_accounts = set(bs_order)
         except Exception as e:
             progress_fn(f"  WARNING: BS fetch failed for {me_dt.strftime('%b %Y')} — {e}")
 
     if bs_order:
         bs_rows.append(["Account"] + bs_month_labels)
         for acct in bs_order:
-            # Only include accounts that appeared in the first month's BS
-            # Accounts appearing only in later months (after GrandTotal) are rogue
-            if first_month_accounts and acct not in first_month_accounts:
-                # Allow if it has non-zero values in at least 2 months
-                info = bs_data[acct]
-                non_zero = sum(1 for v in info["values"] if v != 0.0)
-                if non_zero < 2:
-                    continue
+            # Skip rogue accounts that only appeared in later months
+            if valid_bs_accounts and acct not in valid_bs_accounts:
+                continue
             info  = bs_data[acct]
             label = ("  " * info["indent"]) + acct
             bs_rows.append([label] + info["values"])
