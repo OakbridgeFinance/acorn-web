@@ -159,21 +159,18 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     if maps_to_apply:
                         progress_fn(f"  Applying {len(maps_to_apply)} mapping(s)...")
                         import openpyxl as _ox
-                        from openpyxl.styles import Font, PatternFill
+                        from openpyxl.styles import Font, PatternFill, Alignment
                         from openpyxl.utils import get_column_letter
+                        from copy import copy as _copy
 
                         wb = _ox.load_workbook(file_path)
+
                         # Hide gridlines on all tabs
                         for sn in wb.sheetnames:
                             wb[sn].sheet_view.showGridLines = False
-                        HEADER_FILL = PatternFill("solid", fgColor="336699")
-                        HEADER_FONT = Font(bold=True, color="FFFFFF")
 
-                        # Log Validation formula before mapping
-                        ws_val = wb["Validation"] if "Validation" in wb.sheetnames else None
-                        if ws_val:
-                            sample_formula = ws_val.cell(row=9, column=4).value
-                            logger.info(f"Validation D9 formula BEFORE mapping: {sample_formula}")
+                        MAP_HEADER_FILL = PatternFill("solid", fgColor="336699")
+                        MAP_HEADER_FONT = Font(bold=True, color="FFFFFF")
 
                         def _build_lookup(m):
                             lookup = {}
@@ -186,7 +183,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         lookup[acct_name] = (group_name, section)
                             return lookup
 
-                        # GL Detail tabs — append columns at end
+                        # ── IS GL Detail and BS GL Detail — append at end ────────
                         for tab_name in ("IS GL Detail", "BS GL Detail"):
                             if tab_name not in wb.sheetnames:
                                 continue
@@ -208,10 +205,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 sec_col = next_col + (map_idx * 2) + 1
 
                                 c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
-                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
                                 ws.column_dimensions[get_column_letter(grp_col)].width = 24
                                 c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
-                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
                                 for ri in range(2, ws.max_row + 1):
@@ -220,14 +217,24 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
+
+                                    # Copy row formatting from col A
+                                    src = ws.cell(row=ri, column=1)
+                                    for col in (grp_col, sec_col):
+                                        tgt = ws.cell(row=ri, column=col)
+                                        if src.has_style:
+                                            tgt.font = _copy(src.font)
+                                            tgt.fill = _copy(src.fill)
+                                            tgt.border = _copy(src.border)
+                                        tgt.alignment = Alignment(horizontal="left")
+
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
 
-                        # BS Balances, P&L, Balance Sheet — insert columns after col A
-                        from copy import copy as _copy
-                        from openpyxl.styles import Alignment as _Alignment
-
+                        # ── BS Balances, P&L, Balance Sheet — append at END ──────
+                        # Appending preserves all formula references including
+                        # Validation XLOOKUPs and P&L/BS cross-check formulas
                         for tab_name in ("BS Balances", "P&L", "Balance Sheet"):
                             if tab_name not in wb.sheetnames:
                                 continue
@@ -235,47 +242,40 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if ws.max_row < 2:
                                 continue
 
-                            num_new_cols = len(maps_to_apply) * 2
-                            ws.insert_cols(2, num_new_cols)
-
+                            next_col = ws.max_column + 1
                             for map_idx, m in enumerate(maps_to_apply):
                                 map_name = m.get("map_name", "")
                                 lookup = _build_lookup(m)
-                                grp_col = 2 + (map_idx * 2)
-                                sec_col = 2 + (map_idx * 2) + 1
+                                grp_col = next_col + (map_idx * 2)
+                                sec_col = next_col + (map_idx * 2) + 1
 
                                 c = ws.cell(row=1, column=grp_col, value=f"{map_name} - Account Group")
-                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
                                 ws.column_dimensions[get_column_letter(grp_col)].width = 24
                                 c = ws.cell(row=1, column=sec_col, value=f"{map_name} - Statement Section")
-                                c.font = HEADER_FONT; c.fill = HEADER_FILL
+                                c.font = MAP_HEADER_FONT; c.fill = MAP_HEADER_FILL
                                 ws.column_dimensions[get_column_letter(sec_col)].width = 22
 
                                 for ri in range(2, ws.max_row + 1):
-                                    source_cell = ws.cell(row=ri, column=1)
-                                    cell_val = source_cell.value
+                                    cell_val = ws.cell(row=ri, column=1).value
                                     if not cell_val:
                                         continue
                                     acct_name = str(cell_val).strip()
                                     match = lookup.get(acct_name)
 
-                                    # Copy formatting from col A to new map columns
+                                    # Copy row formatting from col A
+                                    src = ws.cell(row=ri, column=1)
                                     for col in (grp_col, sec_col):
-                                        target = ws.cell(row=ri, column=col)
-                                        if source_cell.has_style:
-                                            target.font = _copy(source_cell.font)
-                                            target.fill = _copy(source_cell.fill)
-                                            target.border = _copy(source_cell.border)
-                                            target.alignment = _Alignment(horizontal="left")
+                                        tgt = ws.cell(row=ri, column=col)
+                                        if src.has_style:
+                                            tgt.font = _copy(src.font)
+                                            tgt.fill = _copy(src.fill)
+                                            tgt.border = _copy(src.border)
+                                        tgt.alignment = Alignment(horizontal="left")
 
                                     if match:
                                         ws.cell(row=ri, column=grp_col, value=match[0])
                                         ws.cell(row=ri, column=sec_col, value=match[1])
-
-                        # Log Validation formula after mapping
-                        if ws_val:
-                            sample_formula = ws_val.cell(row=9, column=4).value
-                            logger.info(f"Validation D9 formula AFTER mapping: {sample_formula}")
 
                         wb.save(file_path)
                         progress_fn(f"  Mapping columns appended.")
