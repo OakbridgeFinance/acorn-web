@@ -236,6 +236,7 @@
           </div>
           <div class="maps-editor-validation" id="mapsValidation"></div>
           <button class="btn-primary btn-sm" id="mapsSaveBtn" onclick="mapsSaveEditor()">Save Map</button>
+          <div id="mapsSaveConfirm" style="display:none;color:#10B981;font-weight:600;font-size:13px;padding:4px 8px"></div>
         </div>
 
         <div class="maps-stmt-toggle">
@@ -1116,7 +1117,7 @@ function mapsRenderAccounts() {
     const indentPx = indent * 16;
     const isParent = !!a._isParent;
     return `<div class="${cls}" ${draggable}
-                 onclick="mapsAccountClick(event, '${escHtml(displayName)}', ${idx})"
+                 onclick="mapsAccountClick(event, '${escHtml(displayName)}')"
                  ondragstart="mapsDragStartMulti(event, '${escHtml(name)}', '${escHtml(displayName)}')"
                  data-acct="${escHtml(name)}" data-idx="${idx}"
                  style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
@@ -1234,34 +1235,37 @@ function mapsRenderSummary() {
   }
 }
 
-function mapsAccountClick(e, displayName, accountIdx) {
+function mapsAccountClick(e, displayName) {
   const assigned = _mapsAssignedSet();
   if (assigned.has(displayName)) return;
 
-  if (e.shiftKey && _mapsLastClickedIdx >= 0) {
-    const allItems = Array.from(
-      document.querySelectorAll('#mapsAccountList .maps-account-item:not(.assigned)')
-    );
-    const start = Math.min(_mapsLastClickedIdx, accountIdx);
-    const end   = Math.max(_mapsLastClickedIdx, accountIdx);
-    allItems.forEach((el, i) => {
+  const allVisible = Array.from(
+    document.querySelectorAll('#mapsAccountList .maps-account-item:not(.assigned)')
+  );
+  const currentPos = allVisible.findIndex(el => {
+    const dnEl = el.querySelector('.maps-acct-name');
+    return dnEl && dnEl.textContent.trim() === displayName;
+  });
+
+  if (e.shiftKey && _mapsLastClickedIdx >= 0 && currentPos >= 0) {
+    const start = Math.min(_mapsLastClickedIdx, currentPos);
+    const end   = Math.max(_mapsLastClickedIdx, currentPos);
+    allVisible.forEach((el, i) => {
       if (i >= start && i <= end) {
-        const name = el.dataset.acct;
-        const num = (el.dataset.idx !== undefined) ? '' : '';
-        // Get the display name from the element text
         const dnEl = el.querySelector('.maps-acct-name');
-        const dn = dnEl ? dnEl.textContent.trim() : (name || '');
+        const dn = dnEl ? dnEl.textContent.trim() : '';
         if (dn && !assigned.has(dn)) _mapsSelectedAccounts.add(dn);
       }
     });
+    _mapsLastClickedIdx = currentPos;
   } else if (e.ctrlKey || e.metaKey) {
     if (_mapsSelectedAccounts.has(displayName)) _mapsSelectedAccounts.delete(displayName);
     else _mapsSelectedAccounts.add(displayName);
-    _mapsLastClickedIdx = accountIdx;
+    _mapsLastClickedIdx = currentPos;
   } else {
     _mapsSelectedAccounts.clear();
     _mapsSelectedAccounts.add(displayName);
-    _mapsLastClickedIdx = accountIdx;
+    _mapsLastClickedIdx = currentPos;
   }
   mapsRenderAccounts();
 }
@@ -1455,7 +1459,13 @@ async function _doSaveMap(mapObj, asNew) {
       body: JSON.stringify({ account_maps: allMaps }),
     });
     mapsState.maps = allMaps;
-    mapsCloseEditor();
+    // Show inline save confirmation — don't navigate away
+    const confirmEl = document.getElementById('mapsSaveConfirm');
+    if (confirmEl) {
+      confirmEl.textContent = '\u2713 Map saved';
+      confirmEl.style.display = 'block';
+      setTimeout(() => { confirmEl.style.display = 'none'; }, 3000);
+    }
     // Refresh mapping checkboxes on extraction page
     if (realmId) loadMappingSelection(realmId);
   } catch (e) {
