@@ -1557,6 +1557,16 @@ def _write_report_sheet(
                              and not is_subtotal
                              and not any(c.isdigit() for c in bare[:5]))
 
+            if is_header:
+                c = ws.cell(row=ri, column=1, value=label.strip())
+                c.font = BOLD_FONT
+                c.fill = GRAY_FILL
+                for ci in range(2, len(row) + 1):
+                    c = ws.cell(row=ri, column=ci, value=None)
+                    c.font = PLAIN_FONT
+                    c.fill = GRAY_FILL
+                continue
+
             for ci in range(1, len(row) + 1):
                 val = row[ci - 1] if (ci - 1) < len(row) else None
                 if val is not None and not isinstance(val, (str, int, float, date)):
