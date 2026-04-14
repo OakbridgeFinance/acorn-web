@@ -367,8 +367,12 @@ async function refreshTokenIfNeeded() {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     if (!res.ok) {
-      // Don't redirect — proceed with existing token, it may still be valid
       console.warn('Token refresh failed:', res.status);
+      if (res.status === 401) {
+        console.warn('Session expired — forcing logout');
+        signOut();
+        return false;
+      }
       return false;
     }
     const data = await res.json();
