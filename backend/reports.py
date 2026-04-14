@@ -154,7 +154,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         GL_HDR_FONT = Font(name="Arial", size=10, bold=True, color="FFFFFF")
                         GL_HDR_FILL = PatternFill("solid", fgColor="337E8D")
                         BOLD        = Font(name="Arial", size=10, bold=True)
-                        BOLD_LG     = Font(name="Arial", size=12, bold=True)
+                        BOLD_LG     = Font(name="Arial", size=10, bold=True)
                         SEC_FILL    = PatternFill("solid", fgColor="D9E1F2")
                         SUBTOT_FILL = PatternFill("solid", fgColor="EEF2F7")
                         NUM_FMT     = '#,##0.00_);(#,##0.00);"-"??;@'
@@ -367,7 +367,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             # QBO Net Income from P&L
                             qbo_ni_row = cr
                             ws_sum.cell(cr, 1,
-                                "Net Income \u2014 QBO P&L").font = Font(italic=True)
+                                "Net Income \u2014 QBO P&L").font = Font(name="Arial", size=10, italic=True)
                             if "P&L" in wb.sheetnames:
                                 ws_pl  = wb["P&L"]
                                 pl_hdr = [ws_pl.cell(1, c).value
@@ -397,7 +397,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # Difference row — black font, conditional fill only
                             diff_row = cr
-                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
+                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
                             for ci in range(2, tot_col + 1):
                                 cl = get_column_letter(ci)
                                 c = ws_sum.cell(cr, ci, f"={cl}{ni_row}-{cl}{qbo_ni_row}")
@@ -552,12 +552,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                 # Difference row — black font, conditional fill only
                                 diff_row = cr
-                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
+                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
                                 for ci in range(2, num_bs_mo + 2):
                                     cl = get_column_letter(ci)
                                     c = ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}")
                                     c.number_format = NUM_FMT
-                                    c.font = Font()
+                                    c.font = Font(name="Arial", size=10)
                                 dr = f"B{diff_row}:{get_column_letter(num_bs_mo + 1)}{diff_row}"
                                 ws_sum.conditional_formatting.add(dr,
                                     CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
@@ -604,8 +604,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     p_is, p_bs = build_portal_flat_tabs(is_sum, bs_bal)
 
                     if p_is:
-                        from openpyxl.styles import Font as _Fp, PatternFill as _PFp
+                        from openpyxl.styles import Font as _Fp, PatternFill as _PFp, Alignment as _Alp
                         from openpyxl.utils import get_column_letter as _gclp
+                        from datetime import datetime as _dtp, date as _datep
                         for tab_name, rows in [("Portal_IS_Flat", p_is), ("Portal_BS_Flat", p_bs)]:
                             if not rows: continue
                             ws = wb_p.create_sheet(tab_name)
@@ -615,12 +616,24 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             pf = _Fp(name="Arial", size=10)
                             for ci, v in enumerate(rows[0], 1):
                                 c = ws.cell(1, ci, v); c.font = hf; c.fill = hb
-                                ws.column_dimensions[_gclp(ci)].width = 24
                             for ri, row in enumerate(rows[1:], 2):
                                 for ci, v in enumerate(row, 1):
+                                    if isinstance(v, _dtp): v = v.date()
                                     c = ws.cell(ri, ci, v); c.font = pf
-                                    if isinstance(v, (int, float)):
+                                    if isinstance(v, _datep):
+                                        c.number_format = "M/D/YYYY"
+                                    elif isinstance(v, (int, float)):
                                         c.number_format = '#,##0.00_);(#,##0.00);"-"??;@'
+                            # Autofit column widths
+                            for col_cells in ws.columns:
+                                mx = 0
+                                cl = _gclp(col_cells[0].column)
+                                for cell in col_cells:
+                                    try:
+                                        cl2 = len(str(cell.value)) if cell.value is not None else 0
+                                        if cl2 > mx: mx = cl2
+                                    except: pass
+                                ws.column_dimensions[cl].width = min(mx + 4, 60)
                             ws.freeze_panes = "A2"
 
                     wb_p.save(file_path)

@@ -1415,7 +1415,7 @@ def _write_validation_sheet(
         ws.cell(row=rn, column=5, value=f"=C{rn}-D{rn}").number_format = NUM_FMT
         ws.cell(row=rn, column=6,
                 value=f'=IF(ABS(E{rn})<{TOLERANCE},"MATCH",IF(C{rn}=0,"MISSING","DIFF"))')
-        ws.cell(row=rn, column=7, value=acct_num)
+        ws.cell(row=rn, column=7, value="")
         current_row += 1
 
     current_row += 1
@@ -1461,7 +1461,7 @@ def _write_validation_sheet(
         ws.cell(row=rn, column=5, value=f"=C{rn}-D{rn}").number_format = NUM_FMT
         ws.cell(row=rn, column=6,
                 value=f'=IF(ABS(E{rn})<{TOLERANCE},"MATCH",IF(AND(C{rn}=0,B{rn}="BS"),"NO ACTIVITY","DIFF"))')
-        ws.cell(row=rn, column=7, value=acct_num)
+        ws.cell(row=rn, column=7, value="")
         current_row += 1
 
     last_data_row = current_row - 1
@@ -1614,7 +1614,7 @@ def _write_report_sheet(
     # Cross-check validation rows at the bottom
     if validation_rows:
         VAL_BG   = PatternFill("solid", fgColor="FFFDE7")
-        VAL_BOLD = Font(bold=True)
+        VAL_BOLD = _font(bold=True)
 
         separator_row  = len(rows) + 2
         ws.cell(row=separator_row, column=1, value="")
@@ -1628,7 +1628,7 @@ def _write_report_sheet(
                 c = ws.cell(row=vri, column=ci, value=val)
                 c.fill = VAL_BG
                 if ci == 1:
-                    c.font = Font(bold=True) if vi == 0 else Font()
+                    c.font = _font(bold=True) if vi == 0 else PLAIN_FONT
                 if ci > 1 and isinstance(val, str) and val.startswith("="):
                     c.number_format = "#,##0.00"
             # Add conditional formatting to Difference rows — red if non-zero
@@ -1896,6 +1896,10 @@ def generate_lite(
         wb.calculation.calcMode = "auto"
         wb.calculation.fullCalcOnLoad = True
         wb.remove(wb.active)
+
+    # Set default font for entire workbook
+    if "Normal" in wb.style_names:
+        wb._named_styles["Normal"].font = _Font(name=_ARIAL, size=_FONT_SZ)
 
     # Build summary tabs
     is_summary_rows = _build_is_gl_summary(is_rows)
