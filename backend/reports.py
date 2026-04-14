@@ -600,8 +600,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 for r in range(1, ws.max_row+1)]
 
                     is_sum = _read_tab_rows(wb_p, "IS GL Summary")
-                    bs_sum = _read_tab_rows(wb_p, "BS GL Summary")
-                    p_is, p_bs = build_portal_flat_tabs(is_sum, bs_sum)
+                    bs_bal = _read_tab_rows(wb_p, "BS Balances")
+                    p_is, p_bs = build_portal_flat_tabs(is_sum, bs_bal)
 
                     if p_is:
                         from openpyxl.styles import Font as _Fp, PatternFill as _PFp

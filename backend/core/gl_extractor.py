@@ -1128,6 +1128,15 @@ def _fetch_qbo_report_totals(
 
 _ACCT_NUM_COLS = {"Account Number", "Account #", "Num"}
 
+
+def _to_date(val):
+    """Strip time component from any date/datetime value."""
+    if val is None:
+        return None
+    if hasattr(val, 'date') and callable(val.date):
+        return val.date()
+    return val
+
 # ── Acorn output formatting constants ────────────────────────────────────────
 from openpyxl.styles import Font as _Font, PatternFill as _PF, Alignment as _AL, Border as _Bdr, Side as _Sd
 
@@ -1171,6 +1180,7 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
 
     for ri, row in enumerate(rows[1:], 2):
         for ci, val in enumerate(row, 1):
+            val = _to_date(val)
             c = ws.cell(row=ri, column=ci, value=val)
             c.font = PLAIN_FONT
             if isinstance(val, date):
