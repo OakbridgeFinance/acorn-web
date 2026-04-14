@@ -163,86 +163,97 @@ def _build_is_flat(is_summary_rows):
 
 def _build_bs_flat(bs_balances_rows):
     """
-    Build Portal_BS_Flat from BS Balances tab rows.
-    BS Balances format: Account | Account Type | Account Subtype | {map cols} | Date | Ending Balance
-    This is long format — one row per account per month-end date.
+    Build Portal_BS_Flat from BS Balances tab.
+    Direct port of _compute_bs_subtotal_rows() from desktop Acorn.
+
+    BS Balances columns:
+    Account | Account Type | Account Subtype | Account Group |
+    Month | Ending Balance | {Map} - Account Group | {Map} - Statement Section
     """
     if not bs_balances_rows or len(bs_balances_rows) < 2:
         return []
 
     header = bs_balances_rows[0]
-    i_acct = _find_col(header, "Account")
-    i_date = _find_col(header, "Date")
-    i_bal = _find_col(header, "Ending Balance")
 
-    if i_acct < 0 or i_bal < 0:
-        return []
+    def find(*names):
+        for name in names:
+            for i, h in enumerate(header):
+                if str(h or "").strip().lower() == name.lower():
+                    return i
+        return -1
+
+    i_acct  = find("Account")
+    i_month = find("Month")
+    i_bal   = find("Ending Balance")
 
     mgc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Account Group")]
     msc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Statement Section")]
+
+    if not mgc or not msc:
+        return []
+
+    i_grp = mgc[0][0]
+    i_sec = msc[0][0]
     n_grp = len(mgc)
     n_sec = len(msc)
 
+    if any(x < 0 for x in [i_acct, i_month, i_bal]):
+        return []
+
+    # Output header
     out_header = ["Account", "Row Type", "Date", "Balance"]
     for _, h in mgc: out_header.append(h)
     for _, h in msc: out_header.append(h)
 
+    # ── Aggregate by (map group, month) ───────────────────────────
+    group_totals = defaultdict(float)
+    group_sec    = {}
+
+    for row in bs_balances_rows[1:]:
+        grp = str(row[i_grp] or "").strip() if i_grp < len(row) else ""
+        sec = str(row[i_sec] or "").strip() if i_sec < len(row) else ""
+        if not grp or not sec:
+            continue
+        month = _clean_date(row[i_month]) if i_month < len(row) else ""
+        bal   = float(row[i_bal] or 0)    if i_bal   < len(row) else 0.0
+        if not month:
+            continue
+        group_totals[(grp, month)] += bal
+        if grp not in group_sec:
+            group_sec[grp] = sec
+
+    # ── Subtotal rows — one per group per month ───────────────────
     out_rows = [out_header]
 
-    # Read each row — one per account per month-end
-    agg = defaultdict(float)
-    meta = {}
-    for row in bs_balances_rows[1:]:
-        acct = str(row[i_acct] or "").strip() if i_acct >= 0 else ""
-        dt = _clean_date(row[i_date]) if i_date >= 0 else ""
-        bal = float(row[i_bal] or 0) if i_bal >= 0 else 0.0
-        if not acct:
-            continue
-        key = (acct, dt)
-        agg[key] += bal
-        if key not in meta:
-            meta[key] = {
-                "gv": [str(row[i] or "") if i < len(row) else "" for i, _ in mgc],
-                "sv": [str(row[i] or "") if i < len(row) else "" for i, _ in msc],
-            }
+    for (grp, month), bal in sorted(group_totals.items(),
+                                     key=lambda x: (str(x[0][1]), str(x[0][0]))):
+        sec = group_sec.get(grp, "")
+        row = [grp, "Subtotal", month, bal]
+        row += [grp] + [""] * (n_grp - 1)
+        row += [sec]  + [""] * (n_sec - 1)
+        out_rows.append(row)
 
-    # Subtotal rows
-    for (acct, dt), bal in sorted(agg.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
-        m = meta[(acct, dt)]
-        r = [acct, "Subtotal", dt, bal]
-        r += m["gv"]
-        r += m["sv"]
-        out_rows.append(r)
+    # ── Section totals — cascading BS logic from desktop Acorn ────
+    all_months = sorted(set(mo for _, mo in group_totals.keys()), key=str)
 
-    # Aggregate by Statement Section per date
-    sec_totals = defaultdict(float)
-    for row in out_rows[1:]:
-        if row[1] != "Subtotal":
-            continue
-        date_val = row[2]
-        bal      = float(row[3] or 0)
-        sec_vals = row[4 + n_grp: 4 + n_grp + n_sec]
-        sec      = str(sec_vals[0] if sec_vals else "").strip()
-        if sec:
-            sec_totals[(sec, date_val)] += bal
+    for month in all_months:
+        pl_secs = defaultdict(float)
+        for (grp, mo), bal in group_totals.items():
+            if mo == month:
+                sec = group_sec.get(grp, "")
+                if sec:
+                    pl_secs[sec] += bal
 
-    # Collect unique dates
-    dates_seen = sorted(set(k[1] for k in sec_totals.keys()), key=lambda d: str(d))
-
-    for dt in dates_seen:
-        def gs(section):
-            return sec_totals.get((section, dt), 0)
-
-        curr_assets   = gs("Current Assets")
-        fixed_assets  = gs("Fixed Assets")
-        other_assets  = gs("Other Assets")
+        curr_assets   = pl_secs.get("Current Assets", 0)
+        fixed_assets  = pl_secs.get("Fixed Assets", 0)
+        other_assets  = pl_secs.get("Other Assets", 0)
         total_assets  = curr_assets + fixed_assets + other_assets
 
-        curr_liab     = gs("Current Liabilities")
-        lt_liab       = gs("Long-Term Liabilities")
+        curr_liab     = pl_secs.get("Current Liabilities", 0)
+        lt_liab       = pl_secs.get("Long-Term Liabilities", 0)
         total_liab    = curr_liab + lt_liab
 
-        equity        = gs("Equity")
+        equity        = pl_secs.get("Equity", 0)
         total_liab_eq = total_liab + equity
 
         for label, row_type, amount in [
@@ -256,9 +267,9 @@ def _build_bs_flat(bs_balances_rows):
             ("Total Equity",                  "SectionTotal", equity),
             ("Total Liabilities & Equity",    "GrandTotal",   total_liab_eq),
         ]:
-            r = [label, row_type, dt, amount]
-            r += [""] * n_grp
-            r += [""] * n_sec
-            out_rows.append(r)
+            row = [label, row_type, month, amount]
+            row += [""] * n_grp
+            row += [""] * n_sec
+            out_rows.append(row)
 
     return out_rows
