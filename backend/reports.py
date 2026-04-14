@@ -155,7 +155,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         BOLD_LG     = Font(name="Arial", size=12, bold=True)
                         SEC_FILL    = PatternFill("solid", fgColor="D9E1F2")
                         SUBTOT_FILL = PatternFill("solid", fgColor="EEF2F7")
-                        NUM_FMT     = "#,##0.00"
+                        NUM_FMT     = '#,##0.00_);(#,##0.00);"-"??;@'
                         RED_FONT    = Font(name="Arial", size=10, bold=True)
                         RED_FILL    = PatternFill("solid", fgColor="FFC7CE")
                         GRN_FONT    = Font(name="Arial", size=10, bold=True)
