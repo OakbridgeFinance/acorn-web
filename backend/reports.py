@@ -227,20 +227,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             hdr_is = [ws_is.cell(1, c).value
                                       for c in range(1, ws_is.max_column + 1)]
 
-                            if grp_label not in hdr_is:
-                                logger.warning(f"'{grp_label}' not in IS GL Summary headers")
-                                continue
+                            # Resolve IS GL Summary columns dynamically
+                            def _cl(hdrs, name):
+                                for i, h in enumerate(hdrs):
+                                    if str(h or "").strip() == name:
+                                        return (i + 1, get_column_letter(i + 1))
+                                return (None, None)
 
-                            is_grp_col_i  = hdr_is.index(grp_label) + 1
-                            is_grp_col_l  = get_column_letter(is_grp_col_i)
-                            is_mon_col_i  = (hdr_is.index("Month") + 1
-                                             if "Month" in hdr_is else None)
-                            is_mon_col_l  = get_column_letter(is_mon_col_i) if is_mon_col_i else None
-                            is_amt_col_i  = (hdr_is.index("Amount") + 1
-                                             if "Amount" in hdr_is else None)
-                            is_amt_col_l  = get_column_letter(is_amt_col_i) if is_amt_col_i else None
+                            is_amt_col_i, is_amt_col_l = _cl(hdr_is, "Amount")
+                            is_mon_col_i, is_mon_col_l = _cl(hdr_is, "Month")
+                            _, is_sec_col_l = _cl(hdr_is, sec_label)
+                            _, is_grp_col_l = _cl(hdr_is, grp_label)
 
-                            if not is_mon_col_i or not is_amt_col_i:
+                            if not is_mon_col_i or not is_amt_col_i or not is_sec_col_l:
                                 continue
 
                             # Collect unique months
@@ -321,7 +320,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             for sec in section_order:
                                 ws_sum.cell(cr, 1, sec)
                                 data_rows.append((cr, sec))
-                                groups_in_sec = [gn for gn, gs in is_groups if gs == sec]
 
                                 for ci, mk in enumerate(month_keys, 2):
                                     mv = month_dates.get(mk)
@@ -334,18 +332,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             date_f = f"DATE({d.year},{d.month},{last})"
                                         except Exception:
                                             date_f = f'"{mk}"'
-                                    if groups_in_sec:
-                                        parts = "+".join([
-                                            f"SUMIFS('IS GL Summary'!${is_amt_col_l}:${is_amt_col_l},"
-                                            f"'IS GL Summary'!${is_grp_col_l}:${is_grp_col_l},"
-                                            f'"{g}",'
-                                            f"'IS GL Summary'!${is_mon_col_l}:${is_mon_col_l},"
-                                            f"{date_f})"
-                                            for g in groups_in_sec
-                                        ])
-                                        formula = f"={parts}"
-                                    else:
-                                        formula = "=0"
+                                    formula = (
+                                        f"=SUMIFS('IS GL Summary'!${is_amt_col_l}:${is_amt_col_l},"
+                                        f"'IS GL Summary'!${is_sec_col_l}:${is_sec_col_l},\"{sec}\","
+                                        f"'IS GL Summary'!${is_mon_col_l}:${is_mon_col_l},{date_f})"
+                                    )
                                     ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
 
                                 sl = get_column_letter(2)
@@ -420,35 +411,25 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             cr += 2
 
                             # ── BS Section ──────────────────────────────────
-                            if "BS Balances" not in wb.sheetnames:
+                            if "BS GL Summary" not in wb.sheetnames:
                                 continue
-                            ws_bsb  = wb["BS Balances"]
-                            hdr_bsb = [ws_bsb.cell(1, c).value
-                                       for c in range(1, ws_bsb.max_column + 1)]
+                            ws_bsg  = wb["BS GL Summary"]
+                            hdr_bsg = [ws_bsg.cell(1, c).value
+                                       for c in range(1, ws_bsg.max_column + 1)]
 
-                            if grp_label not in hdr_bsb:
-                                logger.warning(f"'{grp_label}' not in BS Balances headers")
-                                continue
+                            bs_amt_col_i, bs_amt_col_l = _cl(hdr_bsg, "Amount")
+                            bs_mon_col_i, bs_mon_col_l = _cl(hdr_bsg, "Month")
+                            _, bs_sec_col_l = _cl(hdr_bsg, sec_label)
 
-                            bs_grp_col_i = hdr_bsb.index(grp_label) + 1
-                            bs_grp_col_l = get_column_letter(bs_grp_col_i)
-                            bs_mon_col_i = (hdr_bsb.index("Month") + 1
-                                            if "Month" in hdr_bsb else None)
-                            bs_mon_col_l = get_column_letter(bs_mon_col_i) if bs_mon_col_i else None
-                            bs_bal_col_i = (hdr_bsb.index("Ending Balance") + 1
-                                            if "Ending Balance" in hdr_bsb else None)
-                            bs_bal_col_l = get_column_letter(bs_bal_col_i) if bs_bal_col_i else None
-
-                            if not bs_mon_col_i or not bs_bal_col_i:
-                                logger.warning("Month or Ending Balance col missing in BS Balances")
+                            if not bs_mon_col_i or not bs_amt_col_l or not bs_sec_col_l:
                                 continue
 
                             # Collect BS month-end dates
                             bs_month_keys    = []
                             bs_month_display = {}
                             bs_month_dates   = {}
-                            for ri in range(2, ws_bsb.max_row + 1):
-                                mv = ws_bsb.cell(ri, bs_mon_col_i).value
+                            for ri in range(2, ws_bsg.max_row + 1):
+                                mv = ws_bsg.cell(ri, bs_mon_col_i).value
                                 if mv is None:
                                     continue
                                 if hasattr(mv, 'strftime'):
@@ -518,28 +499,22 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 except Exception:
                                     return f'"{mk}"'
 
-                            def _bs_sumifs(groups_list, date_f):
-                                if not groups_list:
-                                    return "=0"
-                                parts = [
-                                    f"SUMIFS('BS Balances'!${bs_bal_col_l}:${bs_bal_col_l},"
-                                    f"'BS Balances'!${bs_grp_col_l}:${bs_grp_col_l},\"{g}\","
-                                    f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
-                                    for g in groups_list
-                                ]
-                                return "=" + "+".join(parts)
-
                             def write_bs_block(sections_list, total_label):
                                 nonlocal cr
                                 sec_data_rows = []
                                 for sec in sections_list:
-                                    groups = bs_sec_groups.get(sec, [])
-                                    if not groups:
+                                    if sec not in bs_sec_groups:
                                         continue
                                     ws_sum.cell(cr, 1, sec)
                                     sec_data_rows.append(cr)
                                     for ci, mk in enumerate(bs_month_keys, 2):
-                                        ws_sum.cell(cr, ci, _bs_sumifs(groups, _bs_date_f(mk))).number_format = NUM_FMT
+                                        date_f = _bs_date_f(mk)
+                                        formula = (
+                                            f"=SUMIFS('BS GL Summary'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                            f"'BS GL Summary'!${bs_sec_col_l}:${bs_sec_col_l},\"{sec}\","
+                                            f"'BS GL Summary'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
+                                        )
+                                        ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
                                     cr += 1
 
                                 if not sec_data_rows:
@@ -555,14 +530,20 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     ws_sum.cell(cr, ci).font = BOLD
                                 cr += 1
 
-                                # BS Balances reference row
+                                # BS GL Summary reference row — same SUMIFS, serves as cross-check
                                 bs_ref_row = cr
-                                ws_sum.cell(cr, 1, f"{total_label} \u2014 per BS Balances").font = LINK_FONT
-                                all_grps = []
-                                for sec in sections_list:
-                                    all_grps.extend(bs_sec_groups.get(sec, []))
+                                ws_sum.cell(cr, 1, f"{total_label} \u2014 per BS GL Summary").font = LINK_FONT
                                 for ci, mk in enumerate(bs_month_keys, 2):
-                                    c = ws_sum.cell(cr, ci, _bs_sumifs(all_grps, _bs_date_f(mk)))
+                                    date_f = _bs_date_f(mk)
+                                    # Sum all sections in this block
+                                    sec_parts = [
+                                        f"SUMIFS('BS GL Summary'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                        f"'BS GL Summary'!${bs_sec_col_l}:${bs_sec_col_l},\"{s}\","
+                                        f"'BS GL Summary'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
+                                        for s in sections_list if s in bs_sec_groups
+                                    ]
+                                    formula = "=" + "+".join(sec_parts) if sec_parts else "=0"
+                                    c = ws_sum.cell(cr, ci, formula)
                                     c.number_format = NUM_FMT
                                     c.font = LINK_FONT
                                 cr += 1
