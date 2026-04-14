@@ -38,79 +38,121 @@ def build_portal_flat_tabs(is_summary_rows, bs_balances_rows):
     return is_flat, bs_flat
 
 
-def _build_is_flat(rows):
-    if not rows or len(rows) < 2:
+def _build_is_flat(is_summary_rows):
+    """
+    Build Portal_IS_Flat from IS GL Summary.
+    Subtotal = per Map Group, SectionTotal = per Statement Section, GrandTotal = Net Income.
+    """
+    if not is_summary_rows or len(is_summary_rows) < 2:
         return []
-    header = rows[0]
-    i_acct = _find_col(header, "Account Name")
-    i_month = _find_col(header, "Month")
-    i_amt = _find_col(header, "Amount")
-    i_dim = _find_col(header, "Class", "Location", "Department")
-    dim_name = header[i_dim] if i_dim >= 0 else None
+
+    header = is_summary_rows[0]
+
+    def find(name):
+        for i, h in enumerate(header):
+            if str(h or "").strip().lower() == name.lower():
+                return i
+        return -1
+
+    i_month = find("Month")
+    i_amt   = find("Amount")
+    i_dim   = find("Class") if find("Class") >= 0 else (
+              find("Location") if find("Location") >= 0 else find("Department"))
+    dim_name = str(header[i_dim]).strip() if i_dim >= 0 else None
 
     mgc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Account Group")]
     msc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Statement Section")]
 
-    out_hdr = ["Account", "Row Type"]
-    if dim_name:
-        out_hdr += ["Dimension Type", "Dimension Value"]
-    out_hdr += ["Date", "Amount"]
-    for _, h in mgc: out_hdr.append(h)
-    for _, h in msc: out_hdr.append(h)
+    if not mgc or not msc:
+        return []
 
-    agg = defaultdict(float)
-    meta = {}
-    for row in rows[1:]:
-        acct = str(row[i_acct] or "") if i_acct >= 0 else ""
-        month = _clean_date(row[i_month]) if i_month >= 0 else ""
-        amt = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
-        dim = str(row[i_dim] or "Total") if i_dim >= 0 else "Total"
-        key = (acct, month, dim)
-        agg[key] += amt
-        if key not in meta:
-            meta[key] = {
+    i_grp = mgc[0][0]
+    i_sec = msc[0][0]
+    n_grp = len(mgc)
+    n_sec = len(msc)
+
+    out_header = ["Account", "Row Type"]
+    if dim_name:
+        out_header += ["Dimension Type", "Dimension Value"]
+    out_header += ["Date", "Amount"]
+    for _, h in mgc: out_header.append(h)
+    for _, h in msc: out_header.append(h)
+
+    # Step 1: Aggregate by Map Group + Date + Dimension
+    grp_totals = defaultdict(float)
+    grp_meta = {}
+    for row in is_summary_rows[1:]:
+        grp  = str(row[i_grp] or "").strip() if i_grp < len(row) else ""
+        sec  = str(row[i_sec] or "").strip() if i_sec < len(row) else ""
+        date = _clean_date(row[i_month]) if i_month >= 0 else ""
+        amt  = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
+        dim  = str(row[i_dim] or "Total").strip() if i_dim >= 0 else "Total"
+        if not grp or not date:
+            continue
+        key = (grp, date, dim)
+        grp_totals[key] += amt
+        if key not in grp_meta:
+            grp_meta[key] = {
+                "sec": sec,
                 "gv": [str(row[i] or "") if i < len(row) else "" for i, _ in mgc],
                 "sv": [str(row[i] or "") if i < len(row) else "" for i, _ in msc],
             }
 
-    out = [out_hdr]
-    for (acct, month, dim), amt in sorted(agg.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
-        m = meta[(acct, month, dim)]
-        r = [acct, "Subtotal"]
+    out_rows = [out_header]
+    for (grp, date, dim), amt in sorted(grp_totals.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
+        m = grp_meta[(grp, date, dim)]
+        row = [grp, "Subtotal"]
         if dim_name:
-            r += [dim_name if dim != "Total" else "", dim]
-        r += [month, amt]
-        r += m["gv"]
-        r += m["sv"]
-        out.append(r)
+            row += [dim_name if dim != "Total" else "", dim]
+        row += [date, amt]
+        row += m["gv"]
+        row += m["sv"]
+        out_rows.append(row)
 
-    # SectionTotal rows per Statement Section
-    for si, (_, sh) in enumerate(msc):
-        sec_tots = defaultdict(float)
-        for row in out[1:]:
-            if row[1] != "Subtotal": continue
-            if dim_name:
-                dim_val = row[3]
-                dt = row[4]
-                amt = float(row[5] or 0)
-                sv = row[6 + len(mgc) + si] if len(row) > 6 + len(mgc) + si else ""
-            else:
-                dim_val = "Total"
-                dt = row[2]
-                amt = float(row[3] or 0)
-                sv = row[4 + len(mgc) + si] if len(row) > 4 + len(mgc) + si else ""
-            if not sv: continue
-            sec_tots[(sv, dt, dim_val)] += amt
-        for (sv, dt, dim_val), total in sorted(sec_tots.items()):
-            r = [sv, "SectionTotal"]
-            if dim_name:
-                r += ["", dim_val]
-            r += [dt, total]
-            r += [""] * len(mgc)
-            r += [""] * len(msc)
-            out.append(r)
+    # Step 2: SectionTotal — sum Subtotal rows by Statement Section
+    sec_totals = defaultdict(float)
+    for row in out_rows[1:]:
+        if row[1] != "Subtotal": continue
+        if dim_name:
+            dim_val = row[3]; date = row[4]; amt = float(row[5] or 0)
+            svs = row[6 + n_grp: 6 + n_grp + n_sec]
+        else:
+            dim_val = "Total"; date = row[2]; amt = float(row[3] or 0)
+            svs = row[4 + n_grp: 4 + n_grp + n_sec]
+        sv = str(svs[0] if svs else "").strip()
+        if not sv: continue
+        sec_totals[(sv, date, dim_val)] += amt
 
-    return out
+    for (sv, date, dim_val), total in sorted(sec_totals.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
+        label = f"Total {sv}"
+        row = [label, "SectionTotal"]
+        if dim_name:
+            row += ["", dim_val]
+        row += [date, total]
+        row += [""] * n_grp
+        row += [label] + [""] * max(0, n_sec - 1)
+        out_rows.append(row)
+
+    # Step 3: GrandTotal — Net Income per Date + Dimension
+    ni_totals = defaultdict(float)
+    for row in out_rows[1:]:
+        if row[1] != "SectionTotal": continue
+        if dim_name:
+            dim_val = row[3]; date = row[4]; amt = float(row[5] or 0)
+        else:
+            dim_val = "Total"; date = row[2]; amt = float(row[3] or 0)
+        ni_totals[(date, dim_val)] += amt
+
+    for (date, dim_val), total in sorted(ni_totals.items()):
+        row = ["Net Income", "GrandTotal"]
+        if dim_name:
+            row += ["", dim_val]
+        row += [date, total]
+        row += [""] * n_grp
+        row += [""] * n_sec
+        out_rows.append(row)
+
+    return out_rows
 
 
 def _build_bs_flat(bs_balances_rows):
