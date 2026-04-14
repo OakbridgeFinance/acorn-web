@@ -1152,10 +1152,11 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
     """Write rows to a worksheet with formatted header, dates, and amounts."""
     from openpyxl.styles import Alignment
 
+    from openpyxl.utils import get_column_letter as _gcl_ws
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
     if not rows:
-        ws.cell(row=1, column=1, value="No data")
+        ws.cell(row=1, column=1, value="No data").font = PLAIN_FONT
         return
 
     header = rows[0]
@@ -1165,8 +1166,8 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
         c = ws.cell(row=1, column=ci, value=col_name)
         c.font      = HDR_FONT
         c.fill      = HDR_FILL
-        c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
-                                vertical="center")
+        c.alignment = _AL(horizontal="center" if ci > 1 else "left",
+                          vertical="center")
 
     for ri, row in enumerate(rows[1:], 2):
         for ci, val in enumerate(row, 1):
@@ -1177,6 +1178,21 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
             elif isinstance(val, (int, float)):
                 c.number_format = "0" if (ci-1) in acct_num_cols else _ACCT_FMT
                 c.alignment     = _AL(horizontal="right")
+
+    # Autofit column widths
+    for col_cells in ws.columns:
+        max_len = 0
+        col_letter = _gcl_ws(col_cells[0].column)
+        for cell in col_cells:
+            try:
+                cl = len(str(cell.value)) if cell.value is not None else 0
+                if cl > max_len: max_len = cl
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
+
+    # Freeze header row
+    ws.freeze_panes = "A2"
 
 
 def _write_validation_sheet(

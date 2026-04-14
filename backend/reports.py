@@ -269,7 +269,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         month_display[mk] = mk
                             month_keys = sorted(month_keys)
                             num_mo     = len(month_keys)
-                            tot_col    = num_mo + 3
+                            tot_col    = num_mo + 2  # months start at col 2
 
                             # IS groups from mapping definition, sorted by section
                             IS_ORDER = ["Revenue", "COS", "Cost of Goods Sold",
@@ -293,12 +293,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 f"{map_name} \u2014 Income Statement").font = BOLD_LG
                             cr += 1
 
-                            # Header
-                            ws_sum.cell(cr, 1, "Group").font = HDR_FONT
+                            # Header — col A blank, then month labels, then Total
+                            ws_sum.cell(cr, 1, "").font = HDR_FONT
                             ws_sum.cell(cr, 1).fill = HDR_FILL
-                            ws_sum.cell(cr, 2, "Section").font = HDR_FONT
-                            ws_sum.cell(cr, 2).fill = HDR_FILL
-                            for ci, mk in enumerate(month_keys, 3):
+                            for ci, mk in enumerate(month_keys, 2):
                                 c = ws_sum.cell(cr, ci, month_display.get(mk, mk))
                                 c.font = HDR_FONT
                                 c.fill = HDR_FILL
@@ -322,11 +320,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             data_rows = []  # [(row_number, section_name)]
                             for sec in section_order:
                                 ws_sum.cell(cr, 1, sec)
-                                ws_sum.cell(cr, 2, "")
                                 data_rows.append((cr, sec))
                                 groups_in_sec = [gn for gn, gs in is_groups if gs == sec]
 
-                                for ci, mk in enumerate(month_keys, 3):
+                                for ci, mk in enumerate(month_keys, 2):
                                     mv = month_dates.get(mk)
                                     if mv and hasattr(mv, 'year'):
                                         date_f = f"DATE({mv.year},{mv.month},{mv.day})"
@@ -351,15 +348,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         formula = "=0"
                                     ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
 
-                                sl = get_column_letter(3)
-                                el = get_column_letter(2 + num_mo)
+                                sl = get_column_letter(2)
+                                el = get_column_letter(1 + num_mo)
                                 ws_sum.cell(cr, tot_col, f"=SUM({sl}{cr}:{el}{cr})").number_format = NUM_FMT
                                 cr += 1
 
                             # Net Income — income sections minus expense sections
                             ni_row = cr
                             ws_sum.cell(cr, 1, "Net Income").font = BOLD
-                            for ci in range(3, tot_col + 1):
+                            for ci in range(2, tot_col + 1):
                                 cl       = get_column_letter(ci)
                                 inc_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in INCOME_SECS)
                                 exp_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in EXPENSE_SECS)
@@ -385,7 +382,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 for pri in range(2, ws_pl.max_row + 1):
                                     lbl = str(ws_pl.cell(pri, 1).value or "").strip().lower()
                                     if lbl in ("net income", "net earnings"):
-                                        for ci, mk in enumerate(month_keys, 3):
+                                        for ci, mk in enumerate(month_keys, 2):
                                             ml_s = month_display.get(mk, mk)
                                             for pci, ph in enumerate(pl_hdr):
                                                 if str(ph or "").strip() == ml_s:
@@ -408,12 +405,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             # Difference row — black font, conditional fill only
                             diff_row = cr
                             ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
-                            for ci in range(3, tot_col + 1):
+                            for ci in range(2, tot_col + 1):
                                 cl = get_column_letter(ci)
                                 c = ws_sum.cell(cr, ci, f"={cl}{ni_row}-{cl}{qbo_ni_row}")
                                 c.number_format = NUM_FMT
-                                c.font = Font()
-                            dr = f"C{diff_row}:{get_column_letter(tot_col)}{diff_row}"
+                                c.font = Font(name="Arial", size=10)
+                            dr = f"B{diff_row}:{get_column_letter(tot_col)}{diff_row}"
                             ws_sum.conditional_formatting.add(dr,
                                 CellIsRule(operator="notEqual", formula=["0"],
                                            font=RED_FONT, fill=RED_FILL))
@@ -490,10 +487,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 f"{map_name} \u2014 Balance Sheet").font = BOLD_LG
                             cr += 1
 
-                            # BS header
-                            ws_sum.cell(cr, 1, "Section").font = HDR_FONT
+                            # BS header — col A blank, then month labels
+                            ws_sum.cell(cr, 1, "").font = HDR_FONT
                             ws_sum.cell(cr, 1).fill = HDR_FILL
-                            for ci, mk in enumerate(bs_month_keys, 3):
+                            for ci, mk in enumerate(bs_month_keys, 2):
                                 c = ws_sum.cell(cr, ci, bs_month_display.get(mk, mk))
                                 c.font = HDR_FONT
                                 c.fill = HDR_FILL
@@ -541,7 +538,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         continue
                                     ws_sum.cell(cr, 1, sec)
                                     sec_data_rows.append(cr)
-                                    for ci, mk in enumerate(bs_month_keys, 3):
+                                    for ci, mk in enumerate(bs_month_keys, 2):
                                         ws_sum.cell(cr, ci, _bs_sumifs(groups, _bs_date_f(mk))).number_format = NUM_FMT
                                     cr += 1
 
@@ -551,7 +548,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 # Total row
                                 total_row = cr
                                 ws_sum.cell(cr, 1, total_label).font = BOLD
-                                for ci in range(3, num_bs_mo + 3):
+                                for ci in range(2, num_bs_mo + 2):
                                     cl = get_column_letter(ci)
                                     refs = "+".join(f"{cl}{r}" for r in sec_data_rows)
                                     ws_sum.cell(cr, ci, f"={refs}").number_format = NUM_FMT
@@ -564,7 +561,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 all_grps = []
                                 for sec in sections_list:
                                     all_grps.extend(bs_sec_groups.get(sec, []))
-                                for ci, mk in enumerate(bs_month_keys, 3):
+                                for ci, mk in enumerate(bs_month_keys, 2):
                                     c = ws_sum.cell(cr, ci, _bs_sumifs(all_grps, _bs_date_f(mk)))
                                     c.number_format = NUM_FMT
                                     c.font = LINK_FONT
@@ -573,12 +570,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 # Difference row — black font, conditional fill only
                                 diff_row = cr
                                 ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(bold=True)
-                                for ci in range(3, num_bs_mo + 3):
+                                for ci in range(2, num_bs_mo + 2):
                                     cl = get_column_letter(ci)
                                     c = ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}")
                                     c.number_format = NUM_FMT
                                     c.font = Font()
-                                dr = f"C{diff_row}:{get_column_letter(num_bs_mo + 2)}{diff_row}"
+                                dr = f"B{diff_row}:{get_column_letter(num_bs_mo + 1)}{diff_row}"
                                 ws_sum.conditional_formatting.add(dr,
                                     CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
                                 ws_sum.conditional_formatting.add(dr,
@@ -591,10 +588,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                         # Column widths for Map Summary
                         ws_sum.column_dimensions["A"].width = 28
-                        ws_sum.column_dimensions["B"].width = 20
-                        for ci in range(3, ws_sum.max_column + 1):
+                        for ci in range(2, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
-                        ws_sum.freeze_panes = "C2"
+                        ws_sum.freeze_panes = "B2"
 
                         wb.save(file_path)
                         progress_fn("  Mapping columns and Map Summary written.")
