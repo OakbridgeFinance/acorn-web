@@ -33,6 +33,16 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Validate JWT token and return user."""
+    supabase = get_supabase_admin()
+    try:
+        result = supabase.auth.get_user(credentials.credentials)
+        return result.user
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
 @router.post("/signup")
 def signup(body: AuthRequest, user=Depends(get_current_user)):
     """Create a new user account (admin only)."""
@@ -81,13 +91,3 @@ def refresh_token(body: RefreshRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validate JWT token and return user_id."""
-    supabase = get_supabase_admin()
-    try:
-        result = supabase.auth.get_user(credentials.credentials)
-        return result.user
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
