@@ -222,6 +222,16 @@ def _build_bs_flat(bs_balances_rows):
         if grp not in group_sec:
             group_sec[grp] = sec
 
+    # Collect Net Income per month from BS Balances
+    # Net Income rows have no map group so they're skipped above — handle separately
+    net_income_by_month = defaultdict(float)
+    for row in bs_balances_rows[1:]:
+        acct  = str(row[i_acct] or "").strip() if i_acct < len(row) else ""
+        month = _clean_date(row[i_month]) if i_month < len(row) else ""
+        bal   = float(row[i_bal] or 0) if i_bal < len(row) else 0.0
+        if acct == "Net Income" and month:
+            net_income_by_month[month] += bal
+
     # ── Subtotal rows — one per group per month ───────────────────
     out_rows = [out_header]
 
@@ -253,7 +263,8 @@ def _build_bs_flat(bs_balances_rows):
         lt_liab       = pl_secs.get("Long-Term Liabilities", 0)
         total_liab    = curr_liab + lt_liab
 
-        equity        = pl_secs.get("Equity", 0)
+        net_income    = net_income_by_month.get(month, 0)
+        equity        = pl_secs.get("Equity", 0) + net_income
         total_liab_eq = total_liab + equity
 
         for label, row_type, amount in [
