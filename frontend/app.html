@@ -558,27 +558,52 @@ async function reconnectQBO() {
   if (!realmId) return;
 
   const btn = $('refreshConInline');
-  if (btn) { btn.textContent = 'Refreshing...'; btn.disabled = true; }
+  if (btn) { btn.textContent = 'Reconnecting...'; btn.disabled = true; }
 
   try {
+    // Try silent token refresh first
     const res = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
       method: 'POST',
       headers: authHeaders(),
     });
-    if (!res.ok) throw new Error('QBO token refresh failed');
 
-    if (btn) {
-      btn.textContent = '\u2713 Refreshed';
-      btn.style.color = '#10B981';
-      setTimeout(() => { btn.textContent = 'Refresh Connection'; btn.style.color = ''; btn.disabled = false; }, 2000);
+    if (res.ok) {
+      if (btn) {
+        btn.textContent = '\u2713 Connected';
+        btn.style.color = '#10B981';
+        setTimeout(() => { btn.textContent = 'Refresh Connection'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      }
+      await loadCompanies();
+    } else {
+      // Refresh failed — offer full re-authorization
+      if (btn) {
+        btn.textContent = 'Reconnect via QBO';
+        btn.style.color = '#F59E0B';
+        btn.disabled = false;
+        btn.onclick = () => fullReauthorize();
+      }
     }
-    await loadCompanies();
   } catch (e) {
     if (btn) {
-      btn.textContent = 'Failed \u2014 reconnect via QBO';
-      btn.style.color = '#EF4444';
-      setTimeout(() => { btn.textContent = 'Refresh Connection'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      btn.textContent = 'Reconnect via QBO';
+      btn.style.color = '#F59E0B';
+      btn.disabled = false;
+      btn.onclick = () => fullReauthorize();
     }
+  }
+}
+
+async function fullReauthorize() {
+  try {
+    const res = await fetch(API + '/api/qbo/auth-url?user_id=' + getUserId(), {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    if (data.auth_url) {
+      window.location.href = data.auth_url;
+    }
+  } catch (e) {
+    alert('Could not start QBO authorization. Please try again.');
   }
 }
 
