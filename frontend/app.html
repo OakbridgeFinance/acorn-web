@@ -347,7 +347,13 @@ const hide = el => { if (typeof el === 'string') el = $(el); if (el) el.classLis
 const escHtml = s => s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : '';
 
 // ── Token refresh ───────────────────────────────────────────────────────────
+let _lastRefreshAttempt = 0;
 async function refreshTokenIfNeeded() {
+  // Cooldown: only attempt refresh once per 5 minutes
+  const now = Date.now();
+  if (now - _lastRefreshAttempt < 300000) return true;
+  _lastRefreshAttempt = now;
+
   const refreshToken = localStorage.getItem('acorn_refresh_token');
   if (!refreshToken) {
     window.location.href = 'login.html';
@@ -361,7 +367,8 @@ async function refreshTokenIfNeeded() {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     if (!res.ok) {
-      window.location.href = 'login.html';
+      // Don't redirect — proceed with existing token, it may still be valid
+      console.warn('Token refresh failed:', res.status);
       return false;
     }
     const data = await res.json();
