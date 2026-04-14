@@ -96,6 +96,7 @@ async function doAuth() {
     localStorage.setItem('acorn_refresh_token', data.refresh_token);
     localStorage.setItem('acorn_user_id',       data.user_id);
     localStorage.setItem('acorn_email',         data.email);
+    localStorage.setItem('acorn_plan',          data.plan || 'starter');
     window.location.href = 'app.html';
 
   } catch (e) {

@@ -10,6 +10,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _require_mapping_plan(user):
+    """Raise 403 if user's plan doesn't include mapping."""
+    plan = (user.user_metadata or {}).get("plan", "starter")
+    if plan not in ("pro", "admin"):
+        raise HTTPException(status_code=403, detail="Mapping requires Pro plan")
+
 router = APIRouter(prefix="/api/mapping", tags=["mapping"])
 
 SUPABASE_URL         = os.getenv("SUPABASE_URL")
@@ -34,6 +41,7 @@ def get_tokens(user_id: str, realm_id: str) -> dict:
 @router.get("/coa/{realm_id}")
 async def get_coa(realm_id: str, user=Depends(get_current_user)):
     """Fetch Chart of Accounts from QBO for mapping UI."""
+    _require_mapping_plan(user)
     tokens = get_tokens(str(user.id), realm_id)
     access_token = tokens["access_token"]
     accounts = []
@@ -90,6 +98,7 @@ async def get_coa(realm_id: str, user=Depends(get_current_user)):
 @router.get("/debug/{realm_id}")
 def debug_mapping(realm_id: str, user=Depends(get_current_user)):
     """Temporary debug — show raw mapping structure."""
+    _require_mapping_plan(user)
     supabase = get_supabase()
     result = supabase.table("mappings").select("account_maps").eq(
         "user_id", str(user.id)
@@ -118,6 +127,7 @@ def debug_mapping(realm_id: str, user=Depends(get_current_user)):
 @router.get("/{realm_id}")
 def get_mapping(realm_id: str, user=Depends(get_current_user)):
     """Get account mapping config for a company."""
+    _require_mapping_plan(user)
     supabase = get_supabase()
     result = supabase.table("mappings").select("account_maps").eq(
         "user_id", str(user.id)
@@ -134,6 +144,7 @@ class MappingBody(BaseModel):
 @router.post("/{realm_id}")
 def save_mapping(realm_id: str, body: MappingBody, user=Depends(get_current_user)):
     """Save account mapping config for a company."""
+    _require_mapping_plan(user)
     supabase = get_supabase()
     supabase.table("mappings").upsert({
         "user_id":      str(user.id),

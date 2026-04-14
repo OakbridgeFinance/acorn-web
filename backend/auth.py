@@ -69,11 +69,13 @@ def login(body: AuthRequest):
             "email":    body.email,
             "password": body.password,
         })
+        user_meta = result.user.user_metadata or {}
         return {
             "access_token":  result.session.access_token,
             "refresh_token": result.session.refresh_token,
             "user_id":       result.user.id,
             "email":         result.user.email,
+            "plan":          user_meta.get("plan", "starter"),
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid email or password")
