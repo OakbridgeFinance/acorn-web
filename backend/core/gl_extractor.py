@@ -1217,6 +1217,8 @@ def _write_validation_sheet(
     dimension: str = "class",
     pl_rows: list | None = None,
     bs_report_rows: list | None = None,
+    is_summary_rows: list | None = None,
+    bs_summary_rows: list | None = None,
 ):
     """Write Validation tab with live Excel formulas.
 
@@ -1241,23 +1243,24 @@ def _write_validation_sheet(
     NUM_FMT    = _ACCT_FMT
     TOLERANCE  = 0.02
 
-    # IS GL column positions — Month column added as B, shifting everything right:
-    # A=Date, B=Month, C=TxnType, D=Num, E=AcctName, F=AcctNum,
-    # G=AcctType, H=AcctSubtype, I=CustVend, J=Memo, K=Split, L=Amount, M=RunBal, N=Class/Location
-    _dim = (dimension or "class").lower().strip()
-    if _dim == "none":
-        # none: A=Date,B=Month,C=TxnType,D=Num,E=AcctName,F=AcctNum,G=AcctType,H=AcctSubtype,
-        #       I=Class,J=Location,K=CustVend,L=Memo,M=Split,N=Amount,O=RunBal
-        IS_ACCT_COL = "E"
-        IS_AMT_COL  = "N"
-    else:
-        # class/location: A=Date,B=Month,C=TxnType,D=Num,E=AcctName,F=AcctNum,
-        #                 G=AcctType,H=AcctSubtype,I=CustVend,J=Memo,K=Split,L=Amount,M=RunBal,N=Class/Loc
-        IS_ACCT_COL = "E"
-        IS_AMT_COL  = "L"
-    IS_DIM_COL = None  # all modes produce one row per txn — no dim filter needed
+    # IS GL Summary column positions — resolve dynamically from summary header
+    # Summary format: Month | Account Name | Account Type | (Class/Location) | Amount | map cols...
+    from openpyxl.utils import get_column_letter as _gcl_val
+    _is_sum_hdr = is_summary_rows[0] if is_summary_rows and len(is_summary_rows) > 0 else []
+    _bs_sum_hdr = bs_summary_rows[0] if bs_summary_rows and len(bs_summary_rows) > 0 else []
 
-    BS_ACCT_COL, BS_BAL_COL = "D", "L"
+    def _vl(hdrs, name):
+        for i, h in enumerate(hdrs):
+            if str(h or "").strip() == name:
+                return _gcl_val(i + 1)
+        return None
+
+    IS_ACCT_COL = _vl(_is_sum_hdr, "Account Name") or "B"
+    IS_AMT_COL  = _vl(_is_sum_hdr, "Amount") or "E"
+    IS_DIM_COL  = None
+
+    BS_ACCT_COL = _vl(_bs_sum_hdr, "Account Name") or "B"
+    BS_BAL_COL  = _vl(_bs_sum_hdr, "Amount") or "D"
 
     # Parse dates for Excel DATE() formula
     from datetime import datetime as _dt
@@ -2118,12 +2121,14 @@ def generate_lite(
         wb, qbo_is, qbo_bs,
         start_date=start_date,
         end_date=end_date,
-        is_tab_name="IS GL Detail",
-        bs_tab_name="BS GL Detail",
+        is_tab_name="IS GL Summary",
+        bs_tab_name="BS GL Summary",
         progress_fn=progress_fn,
         dimension=dimension,
         pl_rows=pl_report_rows,
         bs_report_rows=bs_report_rows,
+        is_summary_rows=is_summary_rows,
+        bs_summary_rows=bs_summary_rows,
     )
     if pct_fn: pct_fn(95)
 
