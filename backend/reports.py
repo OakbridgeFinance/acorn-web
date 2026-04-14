@@ -26,13 +26,15 @@ class GenerateRequest(BaseModel):
     start_date:        str
     end_date:          str
     dimension:         str = "none"
-    selected_maps:     list[str] = []
-    include_gl_detail: bool = False
+    selected_maps:      list[str] = []
+    include_gl_detail:  bool = False
+    include_portal_data: bool = False
 
 def run_report_job(job_id: str, user_id: str, realm_id: str,
                    start_date: str, end_date: str, dimension: str,
                    selected_maps: list[str] | None = None,
-                   include_gl_detail: bool = False):
+                   include_gl_detail: bool = False,
+                   include_portal_data: bool = False):
     """Run in a background thread — fetches QBO data and generates Excel file."""
     try:
         update_job(job_id, status="running")
@@ -581,6 +583,52 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     logger.error(f"Mapping error: {e}\n{traceback.format_exc()}")
                     progress_fn(f"  WARNING: Mapping failed — {e}")
 
+            # Add portal flat tabs if requested
+            if include_portal_data:
+                try:
+                    progress_fn("  Building portal data tabs...")
+                    import openpyxl as _ox_p
+                    from backend.portal_prep import build_portal_flat_tabs
+                    wb_p = _ox_p.load_workbook(file_path)
+
+                    # Read IS GL Summary and BS GL Summary rows from the workbook
+                    def _read_tab_rows(wb, tab_name):
+                        if tab_name not in wb.sheetnames:
+                            return []
+                        ws = wb[tab_name]
+                        return [[ws.cell(r, c).value for c in range(1, ws.max_column+1)]
+                                for r in range(1, ws.max_row+1)]
+
+                    is_sum = _read_tab_rows(wb_p, "IS GL Summary")
+                    bs_sum = _read_tab_rows(wb_p, "BS GL Summary")
+                    p_is, p_bs = build_portal_flat_tabs(is_sum, bs_sum)
+
+                    if p_is:
+                        from openpyxl.styles import Font as _Fp, PatternFill as _PFp
+                        from openpyxl.utils import get_column_letter as _gclp
+                        for tab_name, rows in [("Portal_IS_Flat", p_is), ("Portal_BS_Flat", p_bs)]:
+                            if not rows: continue
+                            ws = wb_p.create_sheet(tab_name)
+                            ws.sheet_view.showGridLines = False
+                            hf = _Fp(name="Arial", size=10, bold=True, color="FFFFFF")
+                            hb = _PFp("solid", fgColor="337E8D")
+                            pf = _Fp(name="Arial", size=10)
+                            for ci, v in enumerate(rows[0], 1):
+                                c = ws.cell(1, ci, v); c.font = hf; c.fill = hb
+                                ws.column_dimensions[_gclp(ci)].width = 24
+                            for ri, row in enumerate(rows[1:], 2):
+                                for ci, v in enumerate(row, 1):
+                                    c = ws.cell(ri, ci, v); c.font = pf
+                                    if isinstance(v, (int, float)):
+                                        c.number_format = '#,##0.00_);(#,##0.00);"-"??;@'
+                            ws.freeze_panes = "A2"
+
+                    wb_p.save(file_path)
+                    progress_fn("  Portal data tabs added.")
+                except Exception as pe:
+                    logger.warning(f"Portal tab build failed: {pe}")
+                    progress_fn(f"  WARNING: Portal tabs failed — {pe}")
+
             # Upload to Supabase storage
             storage_path = f"{user_id}/{job_id}/{file_name}"
             with open(file_path, "rb") as f:
@@ -619,7 +667,8 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
         target=run_report_job,
         args=(job["id"], str(user.id), body.realm_id,
               body.start_date, body.end_date, body.dimension,
-              body.selected_maps, body.include_gl_detail),
+              body.selected_maps, body.include_gl_detail,
+              body.include_portal_data),
         daemon=True,
     )
     thread.start()
@@ -651,293 +700,3 @@ def job_history(user=Depends(get_current_user)):
     return {"jobs": get_user_jobs(str(user.id))}
 
 
-def run_portal_prep(portal_job_id: str, user_id: str, source_job_id: str, source_job: dict):
-    """Read completed report Excel, produce Portal flat file, upload to Supabase."""
-    try:
-        update_job(portal_job_id, status="running", progress="Downloading source report...")
-        import openpyxl as _ox
-        from collections import defaultdict
-        from openpyxl.styles import Font, PatternFill
-        from openpyxl.utils import get_column_letter
-        import httpx as _httpx
-        import tempfile, re as _re2
-        from pathlib import Path
-
-        supabase = get_supabase()
-        source_url = source_job["file_url"]
-        resp = _httpx.get(source_url, timeout=60)
-        resp.raise_for_status()
-
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(resp.content)
-            tmp_path = tmp.name
-
-        wb_src = _ox.load_workbook(tmp_path, read_only=True)
-        os.unlink(tmp_path)
-
-        def find_col(headers, *names):
-            for name in names:
-                for i, h in enumerate(headers):
-                    if str(h or "").strip().lower() == name.lower():
-                        return i
-            return -1
-
-        update_job(portal_job_id, progress="Building IS flat file...")
-
-        # ── Read IS GL Detail ──────────────────────────────────────────
-        if "IS GL Detail" not in wb_src.sheetnames:
-            raise ValueError("IS GL Detail tab not found in source report")
-
-        ws_is = wb_src["IS GL Detail"]
-        is_hdrs = [ws_is.cell(1, c).value for c in range(1, ws_is.max_column + 1)]
-        is_acct_col = find_col(is_hdrs, "Account Name")
-        is_month_col = find_col(is_hdrs, "Month")
-        is_amt_col = find_col(is_hdrs, "Amount")
-        is_dim_col = find_col(is_hdrs, "Class", "Location")
-        dim_type_lbl = str(is_hdrs[is_dim_col] or "").strip() if is_dim_col >= 0 else ""
-
-        is_map_cols = {}
-        for i, h in enumerate(is_hdrs):
-            if h and str(h).endswith(" - Account Group"):
-                mn = str(h).replace(" - Account Group", "")
-                sl = f"{mn} - Statement Section"
-                if sl in is_hdrs:
-                    is_map_cols[mn] = (i, is_hdrs.index(sl))
-        map_names = list(is_map_cols.keys())
-
-        raw_is = []
-        for ri in range(2, ws_is.max_row + 1):
-            acct = ws_is.cell(ri, is_acct_col + 1).value if is_acct_col >= 0 else None
-            month = ws_is.cell(ri, is_month_col + 1).value if is_month_col >= 0 else None
-            amt = ws_is.cell(ri, is_amt_col + 1).value if is_amt_col >= 0 else None
-            dim = ws_is.cell(ri, is_dim_col + 1).value if is_dim_col >= 0 else "Total"
-            if not acct or not month:
-                continue
-            row = {"account": str(acct).strip(), "month": month, "amount": float(amt or 0),
-                   "dim_value": str(dim or "Total").strip() or "Total"}
-            for mn, (gc, sc) in is_map_cols.items():
-                row[f"{mn}_group"] = ws_is.cell(ri, gc + 1).value or ""
-                row[f"{mn}_section"] = ws_is.cell(ri, sc + 1).value or ""
-            raw_is.append(row)
-
-        # Aggregate per account+month+dim
-        agg = defaultdict(lambda: {"amount": 0.0, "meta": {}})
-        for row in raw_is:
-            key = (row["account"], row["month"], row["dim_value"])
-            agg[key]["amount"] += row["amount"]
-            for mn in map_names:
-                if mn not in agg[key]["meta"]:
-                    agg[key]["meta"][mn] = {"group": row.get(f"{mn}_group", ""), "section": row.get(f"{mn}_section", "")}
-
-        # Total dimension
-        total_agg = defaultdict(float)
-        total_meta = {}
-        for row in raw_is:
-            key = (row["account"], row["month"])
-            total_agg[key] += row["amount"]
-            if key not in total_meta:
-                total_meta[key] = {mn: {"group": row.get(f"{mn}_group", ""), "section": row.get(f"{mn}_section", "")} for mn in map_names}
-
-        is_flat = []
-        for (acct, month, dim), data in agg.items():
-            r = {"Account": acct, "Row Type": "Subtotal", "Dimension Type": dim_type_lbl if dim != "Total" else "",
-                 "Dimension Value": dim, "Date": month, "Amount": data["amount"]}
-            for mn in map_names:
-                r[f"{mn} - Account Group"] = data["meta"].get(mn, {}).get("group", "")
-                r[f"{mn} - Statement Section"] = data["meta"].get(mn, {}).get("section", "")
-            is_flat.append(r)
-
-        for (acct, month), amt in total_agg.items():
-            r = {"Account": acct, "Row Type": "Subtotal", "Dimension Type": "", "Dimension Value": "Total",
-                 "Date": month, "Amount": amt}
-            for mn in map_names:
-                r[f"{mn} - Account Group"] = total_meta.get((acct, month), {}).get(mn, {}).get("group", "")
-                r[f"{mn} - Statement Section"] = total_meta.get((acct, month), {}).get(mn, {}).get("section", "")
-            is_flat.append(r)
-
-        # SectionTotal rows
-        for mn in map_names:
-            grp_totals = defaultdict(float)
-            grp_meta = {}
-            for row in is_flat:
-                if row["Row Type"] != "Subtotal": continue
-                grp = row.get(f"{mn} - Account Group", "")
-                sec = row.get(f"{mn} - Statement Section", "")
-                if not grp: continue
-                key = (grp, row["Date"], row["Dimension Value"])
-                grp_totals[key] += row["Amount"]
-                if key not in grp_meta: grp_meta[key] = sec
-            for (grp, month, dim), total in grp_totals.items():
-                r = {"Account": grp, "Row Type": "SectionTotal", "Dimension Type": "", "Dimension Value": dim,
-                     "Date": month, "Amount": total, f"{mn} - Account Group": grp,
-                     f"{mn} - Statement Section": grp_meta.get((grp, month, dim), "")}
-                for other in map_names:
-                    if other != mn:
-                        r[f"{other} - Account Group"] = ""
-                        r[f"{other} - Statement Section"] = ""
-                is_flat.append(r)
-
-        # GrandTotal (Net Income)
-        ni_totals = defaultdict(float)
-        for row in is_flat:
-            if row["Row Type"] == "SectionTotal":
-                ni_totals[(row["Date"], row["Dimension Value"])] += row["Amount"]
-        for (month, dim), total in ni_totals.items():
-            r = {"Account": "Net Income", "Row Type": "GrandTotal", "Dimension Type": "", "Dimension Value": dim,
-                 "Date": month, "Amount": total}
-            for mn in map_names:
-                r[f"{mn} - Account Group"] = ""
-                r[f"{mn} - Statement Section"] = ""
-            is_flat.append(r)
-
-        update_job(portal_job_id, progress="Building BS flat file...")
-
-        # ── Read BS Balances ───────────────────────────────────────────
-        bs_flat = []
-        if "BS Balances" in wb_src.sheetnames:
-            ws_bs = wb_src["BS Balances"]
-            bs_hdrs = [ws_bs.cell(1, c).value for c in range(1, ws_bs.max_column + 1)]
-            bs_acct = find_col(bs_hdrs, "Account")
-            bs_mon = find_col(bs_hdrs, "Month")
-            bs_bal = find_col(bs_hdrs, "Ending Balance")
-            bs_map_cols = {}
-            for i, h in enumerate(bs_hdrs):
-                if h and str(h).endswith(" - Account Group"):
-                    mn = str(h).replace(" - Account Group", "")
-                    sl = f"{mn} - Statement Section"
-                    if sl in bs_hdrs:
-                        bs_map_cols[mn] = (i, bs_hdrs.index(sl))
-            bs_map_names = list(bs_map_cols.keys())
-
-            bs_agg = defaultdict(lambda: {"balance": 0.0, "meta": {}})
-            for ri in range(2, ws_bs.max_row + 1):
-                acct = ws_bs.cell(ri, bs_acct + 1).value if bs_acct >= 0 else None
-                month = ws_bs.cell(ri, bs_mon + 1).value if bs_mon >= 0 else None
-                bal = ws_bs.cell(ri, bs_bal + 1).value if bs_bal >= 0 else None
-                if not acct or not month: continue
-                key = (str(acct).strip(), month)
-                bs_agg[key]["balance"] += float(bal or 0)
-                for mn, (gc, sc) in bs_map_cols.items():
-                    if mn not in bs_agg[key]["meta"]:
-                        bs_agg[key]["meta"][mn] = {"group": ws_bs.cell(ri, gc + 1).value or "", "section": ws_bs.cell(ri, sc + 1).value or ""}
-
-            for (acct, month), data in bs_agg.items():
-                r = {"Account": acct, "Row Type": "Subtotal", "Date": month, "Balance": data["balance"]}
-                for mn in bs_map_names:
-                    r[f"{mn} - Account Group"] = data["meta"].get(mn, {}).get("group", "")
-                    r[f"{mn} - Statement Section"] = data["meta"].get(mn, {}).get("section", "")
-                bs_flat.append(r)
-
-            for mn in bs_map_names:
-                grp_tots = defaultdict(float)
-                grp_meta = {}
-                for row in bs_flat:
-                    grp = row.get(f"{mn} - Account Group", "")
-                    sec = row.get(f"{mn} - Statement Section", "")
-                    if not grp: continue
-                    key = (grp, row["Date"])
-                    grp_tots[key] += row["Balance"]
-                    if key not in grp_meta: grp_meta[key] = sec
-                for (grp, month), total in grp_tots.items():
-                    r = {"Account": grp, "Row Type": "SectionTotal", "Date": month, "Balance": total,
-                         f"{mn} - Account Group": grp, f"{mn} - Statement Section": grp_meta.get((grp, month), "")}
-                    for other in bs_map_names:
-                        if other != mn:
-                            r[f"{other} - Account Group"] = ""
-                            r[f"{other} - Statement Section"] = ""
-                    bs_flat.append(r)
-
-            ASSET_SECS = {"Current Assets", "Fixed Assets", "Other Assets"}
-            LIAB_SECS = {"Current Liabilities", "Long-term Liabilities"}
-            EQUITY_SECS = {"Equity"}
-            if bs_map_names:
-                mn0 = bs_map_names[0]
-                mt = defaultdict(lambda: {"assets": 0.0, "liabilities": 0.0, "equity": 0.0})
-                for row in bs_flat:
-                    if row["Row Type"] != "SectionTotal": continue
-                    sec = row.get(f"{mn0} - Statement Section", "")
-                    m = row["Date"]
-                    if sec in ASSET_SECS: mt[m]["assets"] += row["Balance"]
-                    elif sec in LIAB_SECS: mt[m]["liabilities"] += row["Balance"]
-                    elif sec in EQUITY_SECS: mt[m]["equity"] += row["Balance"]
-                for month, totals in mt.items():
-                    for label, amount in [("Total Assets", totals["assets"]), ("Total Liabilities", totals["liabilities"]), ("Total Equity", totals["equity"])]:
-                        r = {"Account": label, "Row Type": "GrandTotal", "Date": month, "Balance": amount}
-                        for mn2 in bs_map_names:
-                            r[f"{mn2} - Account Group"] = ""
-                            r[f"{mn2} - Statement Section"] = ""
-                        bs_flat.append(r)
-
-        update_job(portal_job_id, progress="Writing Portal Excel file...")
-
-        wb_out = _ox.Workbook()
-        wb_out.remove(wb_out.active)
-        HDR_F = Font(bold=True, color="FFFFFF")
-        HDR_BG = PatternFill("solid", fgColor="1F4E79")
-
-        def write_flat_tab(wb, tab_name, rows):
-            if not rows: return
-            ws = wb.create_sheet(tab_name)
-            ws.sheet_view.showGridLines = False
-            cols = list(rows[0].keys())
-            for ci, col in enumerate(cols, 1):
-                c = ws.cell(1, ci, col)
-                c.font = HDR_F; c.fill = HDR_BG
-                ws.column_dimensions[get_column_letter(ci)].width = 24
-            for ri, row in enumerate(rows, 2):
-                for ci, col in enumerate(cols, 1):
-                    v = row.get(col, "")
-                    if hasattr(v, 'strftime'):
-                        ws.cell(ri, ci, v).number_format = "MMM YYYY"
-                    else:
-                        ws.cell(ri, ci, v if v != "" else None)
-
-        write_flat_tab(wb_out, "Portal_IS_Flat", is_flat)
-        write_flat_tab(wb_out, "Portal_BS_Flat", bs_flat)
-
-        company_name = source_job.get("company_name", source_job.get("realm_id", "CLIENT"))
-        clean = _re2.sub(r'[^\w]', '_', str(company_name)).strip('_').upper()
-        start = source_job.get("start_date", "")[:7]
-        end = source_job.get("end_date", "")[:7]
-        portal_name = f"{clean}_{start}_{end}_portal.xlsx"
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_path = Path(tmpdir) / portal_name
-            wb_out.save(str(out_path))
-            storage_path = f"{user_id}/portal/{portal_name}"
-            with open(out_path, "rb") as f:
-                supabase.storage.from_("reports").upload(
-                    storage_path, f.read(),
-                    {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
-            url_result = supabase.storage.from_("reports").create_signed_url(storage_path, 3600)
-            file_url = url_result["signedURL"]
-
-        update_job(portal_job_id, status="complete", file_url=file_url)
-
-    except Exception as e:
-        import traceback
-        logger.error(f"Portal prep error: {e}\n{traceback.format_exc()}")
-        update_job(portal_job_id, status="failed", error=str(e))
-
-
-@router.post("/prepare-portal/{job_id}")
-def prepare_portal_file(job_id: str, user=Depends(get_current_user)):
-    """Generate Portal flat file from completed report job."""
-    job = get_job(job_id)
-    if not job or job["user_id"] != str(user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job["status"] != "complete":
-        raise HTTPException(status_code=400, detail="Job not complete")
-
-    supabase = get_supabase()
-    portal_job = create_job(
-        user_id=str(user.id), realm_id=job["realm_id"],
-        start_date=job["start_date"], end_date=job["end_date"],
-        dimension=job.get("dimension", "none"))
-
-    thread = threading.Thread(
-        target=run_portal_prep,
-        args=(portal_job["id"], str(user.id), job_id, job),
-        daemon=True)
-    thread.start()
-    return {"portal_job_id": portal_job["id"], "status": "pending"}

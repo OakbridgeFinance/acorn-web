@@ -177,6 +177,16 @@
           </span>
         </div>
 
+        <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
+          <input type="checkbox" id="includePortalData" style="width:14px;height:14px;cursor:pointer;">
+          <label for="includePortalData" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+            Include portal data tabs
+          </label>
+          <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
+            (adds Portal_IS_Flat and Portal_BS_Flat)
+          </span>
+        </div>
+
         <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
           <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="flex:1;">
             <span id="btnLiteLabel">Generate Report</span>
@@ -366,7 +376,6 @@ async function refreshTokenIfNeeded() {
 // ── State ───────────────────────────────────────────────────────────────────
 let state = { realmId: null, companies: [], running: false, startTime: null, pollTimer: null };
 let _currentJobId = null;
-let _lastCompletedJobId = null;
 let isAdmin = true; // TODO: set from user metadata when auth supports it
 
 // ── Company list ────────────────────────────────────────────────────────────
@@ -471,9 +480,10 @@ function resetExtractionUI() {
 
   // Clear job IDs
   _currentJobId = null;
-  _lastCompletedJobId = null;
   const glDetailCheck = $('includeGLDetail');
   if (glDetailCheck) glDetailCheck.checked = false;
+  const portalCheck = $('includePortalData');
+  if (portalCheck) portalCheck.checked = false;
 }
 
 function selectClient(realmId, companyName) {
@@ -695,7 +705,8 @@ async function generate() {
         end_date:      endDate,
         dimension:         $('liteGlDimension')?.value || 'none',
         selected_maps:     getSelectedMaps(),
-        include_gl_detail: $('includeGLDetail')?.checked || false,
+        include_gl_detail:  $('includeGLDetail')?.checked || false,
+        include_portal_data: $('includePortalData')?.checked || false,
       }),
     });
     const data = await res.json();
@@ -754,14 +765,10 @@ function pollJob(jobId) {
             wrapper.style.marginTop = '16px';
             wrapper.innerHTML =
               '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">Save Report As</button>' +
-              (isAdmin ? '<button id="portalPrepBtn" class="btn-outline btn-sm" style="margin-left:10px;" onclick="preparePortalFile()">Prepare Portal File</button>' : '') +
               '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>';
             banner.appendChild(wrapper);
 
             $('saveAsBtn').onclick = function() { saveReportAs(job.file_url, suggestedName); };
-            _lastCompletedJobId = jobId;
-            const pb = $('portalPrepBtn');
-            if (pb) pb.dataset.jobId = jobId;
           }
         }
       } else if (job.status === 'failed') {
@@ -1562,62 +1569,6 @@ async function mapsDelete(idx) {
   }
 }
 
-// ── Portal File ─────────────────────────────────────────────────────────────
-async function preparePortalFile() {
-  const btn = $('portalPrepBtn');
-  const jobId = btn?.dataset?.jobId || _lastCompletedJobId;
-  console.log('preparePortalFile called, jobId:', jobId);
-  if (!jobId) { alert('No completed report to prepare portal file from.'); return; }
-
-  btn.textContent = 'Preparing...';
-  btn.disabled = true;
-
-  try {
-    const res = await fetch(API + '/api/reports/prepare-portal/' + jobId, {
-      method: 'POST',
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Failed');
-
-    const portalJobId = data.portal_job_id;
-    const interval = setInterval(async () => {
-      try {
-        const sr = await fetch(API + '/api/reports/job/' + portalJobId, { headers: authHeaders() });
-        const sd = await sr.json();
-        if (sd.progress) btn.textContent = sd.progress;
-
-        if (sd.status === 'complete') {
-          clearInterval(interval);
-          btn.textContent = '\u2713 Portal File Ready';
-          btn.style.color = '#10B981';
-          btn.disabled = false;
-          if (sd.file_url) {
-            const a = document.createElement('a');
-            a.href = sd.file_url; a.click();
-          }
-          setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
-        } else if (sd.status === 'failed') {
-          clearInterval(interval);
-          btn.textContent = 'Failed: ' + (sd.error || 'unknown');
-          btn.style.color = '#EF4444';
-          btn.disabled = false;
-          setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
-        }
-      } catch (pe) {
-        clearInterval(interval);
-        btn.textContent = 'Polling error';
-        btn.disabled = false;
-      }
-    }, 2000);
-  } catch (e) {
-    btn.textContent = 'Error: ' + e.message;
-    btn.style.color = '#EF4444';
-    btn.disabled = false;
-    setTimeout(() => { btn.textContent = 'Prepare Portal File'; btn.style.color = ''; }, 4000);
-  }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   // Check for OAuth callback
   const params = new URLSearchParams(window.location.search);
@@ -1628,6 +1579,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   refreshTokenIfNeeded();
   loadCompanies();
+
+  // Show portal checkbox for admins
+  const portalRow = $('portalDataRow');
+  if (portalRow) portalRow.style.display = isAdmin ? 'flex' : 'none';
 
   // Date validation listeners
   $('liteDateStart')?.addEventListener('change', function() {
