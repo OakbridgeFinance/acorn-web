@@ -34,15 +34,18 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/signup")
-def signup(body: AuthRequest):
-    """Create a new user account."""
+def signup(body: AuthRequest, user=Depends(get_current_user)):
+    """Create a new user account (admin only)."""
+    user_meta = user.user_metadata or {}
+    if not user_meta.get("admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
     supabase = get_supabase_anon()
     try:
         result = supabase.auth.sign_up({
             "email":    body.email,
             "password": body.password,
         })
-        return {"message": "Check your email to confirm your account"}
+        return {"message": "User created"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

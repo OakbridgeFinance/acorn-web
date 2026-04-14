@@ -36,14 +36,14 @@ def get_supabase():
 
 
 @router.get("/auth-url")
-def get_auth_url(user_id: str):
+def get_auth_url(user=Depends(get_current_user)):
     """Return the QBO OAuth authorization URL."""
     params = {
         "client_id":     QBO_CLIENT_ID,
         "response_type": "code",
         "scope":         QBO_SCOPES,
         "redirect_uri":  QBO_REDIRECT_URI,
-        "state":         user_id,  # pass user_id through state param
+        "state":         str(user.id),
     }
     url = QBO_AUTH_URL + "?" + urllib.parse.urlencode(params)
     return {"auth_url": url}
@@ -124,12 +124,12 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
 
 
 @router.get("/companies")
-def list_companies(user_id: str):
-    """List connected QBO companies for a user."""
+def list_companies(user=Depends(get_current_user)):
+    """List connected QBO companies for the authenticated user."""
     supabase = get_supabase()
     result = supabase.table("qbo_tokens").select(
         "realm_id, company_name, updated_at"
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", str(user.id)).execute()
     return {"companies": result.data}
 
 

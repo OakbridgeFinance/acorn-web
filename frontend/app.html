@@ -393,7 +393,7 @@ let isAdmin = true; // TODO: set from user metadata when auth supports it
 async function loadCompanies() {
   await refreshTokenIfNeeded();
   try {
-    const res = await fetch(API + '/api/qbo/companies?user_id=' + getUserId(), {
+    const res = await fetch(API + '/api/qbo/companies', {
       headers: authHeaders(),
     });
     const data = await res.json();
@@ -545,7 +545,7 @@ function goBack() {
 // ── QBO OAuth ───────────────────────────────────────────────────────────────
 async function connectQBO() {
   try {
-    const res = await fetch(API + '/api/qbo/auth-url?user_id=' + getUserId(), {
+    const res = await fetch(API + '/api/qbo/auth-url', {
       headers: authHeaders(),
     });
     const data = await res.json();
@@ -599,7 +599,7 @@ async function reconnectQBO() {
 
 async function fullReauthorize() {
   try {
-    const res = await fetch(API + '/api/qbo/auth-url?user_id=' + getUserId(), {
+    const res = await fetch(API + '/api/qbo/auth-url', {
       headers: authHeaders(),
     });
     const data = await res.json();
