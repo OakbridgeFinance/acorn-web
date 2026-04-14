@@ -214,52 +214,51 @@ def _build_bs_flat(bs_balances_rows):
         r += m["sv"]
         out_rows.append(r)
 
-    # SectionTotal rows — sum balances by Statement Section per date
+    # Aggregate by Statement Section per date
     sec_totals = defaultdict(float)
     for row in out_rows[1:]:
-        if row[1] != "Subtotal": continue
-        dt = row[2]
-        bal = float(row[3] or 0)
-        for si, (_, _) in enumerate(msc):
-            sv = row[4 + n_grp + si] if len(row) > 4 + n_grp + si else ""
-            if str(sv or "").strip():
-                sec_totals[(str(sv).strip(), dt)] += bal
+        if row[1] != "Subtotal":
+            continue
+        date_val = row[2]
+        bal      = float(row[3] or 0)
+        sec_vals = row[4 + n_grp: 4 + n_grp + n_sec]
+        sec      = str(sec_vals[0] if sec_vals else "").strip()
+        if sec:
+            sec_totals[(sec, date_val)] += bal
 
-    for (sv, dt), total in sorted(sec_totals.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
-        r = [sv, "SectionTotal", dt, total]
-        r += [""] * n_grp
-        r += [sv] + [""] * max(0, n_sec - 1)
-        out_rows.append(r)
+    # Collect unique dates
+    dates_seen = sorted(set(k[1] for k in sec_totals.keys()), key=lambda d: str(d))
 
-    # GrandTotal rows
-    bucket_totals = defaultdict(float)
-    for row in out_rows[1:]:
-        if row[1] != "SectionTotal": continue
-        sv = str(row[0] or "").strip()
-        dt = row[2]
-        bal = float(row[3] or 0)
-        bucket = _classify_section(sv)
-        if bucket:
-            bucket_totals[(bucket, dt)] += bal
+    for dt in dates_seen:
+        def gs(section):
+            return sec_totals.get((section, dt), 0)
 
-    BUCKET_LABELS = {"asset": "Total Assets", "liability": "Total Liabilities", "equity": "Total Equity"}
-    for (bucket, dt), total in sorted(bucket_totals.items(), key=lambda x: (str(x[0][1]), x[0][0])):
-        label = BUCKET_LABELS.get(bucket, f"Total {bucket.title()}")
-        r = [label, "GrandTotal", dt, total]
-        r += [""] * n_grp
-        r += [""] * n_sec
-        out_rows.append(r)
+        curr_assets   = gs("Current Assets")
+        fixed_assets  = gs("Fixed Assets")
+        other_assets  = gs("Other Assets")
+        total_assets  = curr_assets + fixed_assets + other_assets
 
-    # Total Liabilities & Equity
-    liab_eq = defaultdict(float)
-    for row in out_rows[1:]:
-        if row[1] != "GrandTotal": continue
-        if str(row[0]) in ("Total Liabilities", "Total Equity"):
-            liab_eq[row[2]] += float(row[3] or 0)
-    for dt, total in sorted(liab_eq.items(), key=lambda x: str(x[0])):
-        r = ["Total Liabilities & Equity", "GrandTotal", dt, total]
-        r += [""] * n_grp
-        r += [""] * n_sec
-        out_rows.append(r)
+        curr_liab     = gs("Current Liabilities")
+        lt_liab       = gs("Long-Term Liabilities")
+        total_liab    = curr_liab + lt_liab
+
+        equity        = gs("Equity")
+        total_liab_eq = total_liab + equity
+
+        for label, row_type, amount in [
+            ("Total Current Assets",          "SectionTotal", curr_assets),
+            ("Total Fixed Assets",            "SectionTotal", fixed_assets),
+            ("Total Other Assets",            "SectionTotal", other_assets),
+            ("Total Assets",                  "SectionTotal", total_assets),
+            ("Total Current Liabilities",     "SectionTotal", curr_liab),
+            ("Total Long-Term Liabilities",   "SectionTotal", lt_liab),
+            ("Total Liabilities",             "SectionTotal", total_liab),
+            ("Total Equity",                  "SectionTotal", equity),
+            ("Total Liabilities & Equity",    "GrandTotal",   total_liab_eq),
+        ]:
+            r = [label, row_type, dt, amount]
+            r += [""] * n_grp
+            r += [""] * n_sec
+            out_rows.append(r)
 
     return out_rows
