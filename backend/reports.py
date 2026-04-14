@@ -221,14 +221,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             sec_label = f"{map_name} - Statement Section"
 
                             # ── IS Section ──────────────────────────────────
-                            if "IS GL Detail" not in wb.sheetnames:
+                            if "IS GL Summary" not in wb.sheetnames:
                                 continue
-                            ws_is  = wb["IS GL Detail"]
+                            ws_is  = wb["IS GL Summary"]
                             hdr_is = [ws_is.cell(1, c).value
                                       for c in range(1, ws_is.max_column + 1)]
 
                             if grp_label not in hdr_is:
-                                logger.warning(f"'{grp_label}' not in IS GL Detail headers")
+                                logger.warning(f"'{grp_label}' not in IS GL Summary headers")
                                 continue
 
                             is_grp_col_i  = hdr_is.index(grp_label) + 1
@@ -339,10 +339,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             date_f = f'"{mk}"'
                                     if groups_in_sec:
                                         parts = "+".join([
-                                            f"SUMIFS('IS GL Detail'!${is_amt_col_l}:${is_amt_col_l},"
-                                            f"'IS GL Detail'!${is_grp_col_l}:${is_grp_col_l},"
+                                            f"SUMIFS('IS GL Summary'!${is_amt_col_l}:${is_amt_col_l},"
+                                            f"'IS GL Summary'!${is_grp_col_l}:${is_grp_col_l},"
                                             f'"{g}",'
-                                            f"'IS GL Detail'!${is_mon_col_l}:${is_mon_col_l},"
+                                            f"'IS GL Summary'!${is_mon_col_l}:${is_mon_col_l},"
                                             f"{date_f})"
                                             for g in groups_in_sec
                                         ])

@@ -1674,36 +1674,39 @@ def _build_is_gl_summary(is_gl_rows: list[list]) -> list[list]:
     def ci(name):
         try: return header.index(name)
         except ValueError: return -1
-    i_an = ci("Account Name"); i_num = ci("Account Number"); i_mo = ci("Month")
-    i_amt = ci("Amount"); i_at = ci("Account Type"); i_as = ci("Account Subtype")
+    i_an = ci("Account Name"); i_mo = ci("Month")
+    i_amt = ci("Amount"); i_at = ci("Account Type")
     i_dim = -1; dim_name = None
     for dn in ("Class", "Location", "Department"):
         i_dim = ci(dn)
         if i_dim >= 0: dim_name = dn; break
-    std = {"Transaction Type","Date","Transaction #","Posting","Name","Memo/Description",
-           "Split","Amount","Running Balance","Account Name","Account Number",
-           "Account Type","Account Subtype","Month","Class","Location","Department",
-           "Customer/Vendor","Num"}
-    mci = [i for i, h in enumerate(header) if h not in std]
+    mgc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Account Group")]
+    msc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Statement Section")]
     agg = defaultdict(float); meta = {}
     for row in is_gl_rows[1:]:
-        an = row[i_an] if i_an >= 0 else ""; nu = row[i_num] if i_num >= 0 else ""
+        an = row[i_an] if i_an >= 0 else ""
         mo = row[i_mo] if i_mo >= 0 else ""; dv = row[i_dim] if i_dim >= 0 else "Total"
         am = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
-        key = (an, nu, mo, dv); agg[key] += am
+        key = (an, mo, dv); agg[key] += am
         if key not in meta:
-            meta[key] = {"at": row[i_at] if i_at >= 0 else "", "as": row[i_as] if i_as >= 0 else "",
-                         "mv": [row[i] if i < len(row) else "" for i in mci]}
-    sh = ["Account Name","Account Number","Account Type","Account Subtype","Month"]
+            meta[key] = {
+                "at": row[i_at] if i_at >= 0 else "",
+                "mi": {i: (row[i] if i < len(row) else "") for i, _ in mgc + msc},
+            }
+    sh = ["Month", "Account Name", "Account Type"]
     if dim_name: sh.append(dim_name)
     sh.append("Amount")
-    sh += [header[i] for i in mci]
+    for _, h in mgc: sh.append(h)
+    for _, h in msc: sh.append(h)
     out = [sh]
-    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][2]), str(x[0][0]))):
-        an, nu, mo, dv = key; m = meta[key]
-        r = [an, nu, m["at"], m["as"], mo]
+    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
+        an, mo, dv = key; m = meta[key]
+        r = [mo, an, m["at"]]
         if dim_name: r.append(dv)
-        r.append(amt); r += m["mv"]; out.append(r)
+        r.append(amt)
+        for i, _ in mgc: r.append(m["mi"].get(i, ""))
+        for i, _ in msc: r.append(m["mi"].get(i, ""))
+        out.append(r)
     return out
 
 
@@ -1716,27 +1719,31 @@ def _build_bs_gl_summary(bs_gl_rows: list[list]) -> list[list]:
     def ci(name):
         try: return header.index(name)
         except ValueError: return -1
-    i_an = ci("Account Name"); i_num = ci("Account Number"); i_mo = ci("Month")
-    i_amt = ci("Amount"); i_at = ci("Account Type"); i_as = ci("Account Subtype")
-    std = {"Transaction Type","Date","Transaction #","Posting","Name","Memo/Description",
-           "Split","Amount","Running Balance","Account Name","Account Number",
-           "Account Type","Account Subtype","Month","Customer/Vendor","Num"}
-    mci = [i for i, h in enumerate(header) if h not in std]
+    i_an = ci("Account Name"); i_mo = ci("Month")
+    i_amt = ci("Amount"); i_at = ci("Account Type")
+    mgc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Account Group")]
+    msc = [(i, h) for i, h in enumerate(header) if str(h or "").endswith(" - Statement Section")]
     agg = defaultdict(float); meta = {}
     for row in bs_gl_rows[1:]:
-        an = row[i_an] if i_an >= 0 else ""; nu = row[i_num] if i_num >= 0 else ""
+        an = row[i_an] if i_an >= 0 else ""
         mo = row[i_mo] if i_mo >= 0 else ""
         am = float(row[i_amt] or 0) if i_amt >= 0 else 0.0
-        key = (an, nu, mo); agg[key] += am
+        key = (an, mo); agg[key] += am
         if key not in meta:
-            meta[key] = {"at": row[i_at] if i_at >= 0 else "", "as": row[i_as] if i_as >= 0 else "",
-                         "mv": [row[i] if i < len(row) else "" for i in mci]}
-    sh = ["Account Name","Account Number","Account Type","Account Subtype","Month","Amount"]
-    sh += [header[i] for i in mci]
+            meta[key] = {
+                "at": row[i_at] if i_at >= 0 else "",
+                "mi": {i: (row[i] if i < len(row) else "") for i, _ in mgc + msc},
+            }
+    sh = ["Month", "Account Name", "Account Type", "Amount"]
+    for _, h in mgc: sh.append(h)
+    for _, h in msc: sh.append(h)
     out = [sh]
-    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][2]), str(x[0][0]))):
-        an, nu, mo = key; m = meta[key]
-        r = [an, nu, m["at"], m["as"], mo, amt]; r += m["mv"]; out.append(r)
+    for key, amt in sorted(agg.items(), key=lambda x: (str(x[0][1]), str(x[0][0]))):
+        an, mo = key; m = meta[key]
+        r = [mo, an, m["at"], amt]
+        for i, _ in mgc: r.append(m["mi"].get(i, ""))
+        for i, _ in msc: r.append(m["mi"].get(i, ""))
+        out.append(r)
     return out
 
 
