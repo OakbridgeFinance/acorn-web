@@ -154,59 +154,63 @@
         </div>
       </div>
 
-      <!-- Reporting Dimension -->
-      <div class="output-section">
-        <div class="output-label">REPORTING DIMENSION</div>
+      <!-- Report Options -->
+      <div class="card">
+        <div class="card-header">Report Options</div>
+        <div class="card-body">
+          <div class="field-row" id="liteGlDimRow">
+            <label class="field-label">IS GL Dimension</label>
+            <select class="select" id="liteGlDimension">
+              <option value="class">By Class</option>
+              <option value="location">By Location</option>
+              <option value="none" selected>No Pivot (Class + Location columns)</option>
+            </select>
+          </div>
 
-        <div class="field-row" id="liteGlDimRow">
-          <label class="field-label">IS GL Dimension</label>
-          <select class="select" id="liteGlDimension">
-            <option value="class">By Class</option>
-            <option value="location">By Location</option>
-            <option value="none" selected>No Pivot (Class + Location columns)</option>
-          </select>
-        </div>
+          <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
+          <div style="font-size:0.8125rem;font-weight:600;color:var(--text);margin-bottom:8px;">Additional Reports</div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
-          <input type="checkbox" id="includeGLDetail" style="width:14px;height:14px;cursor:pointer;">
-          <label for="includeGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-            Include full GL detail tabs
-          </label>
-          <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
-            (GL data is summarized by default)
-          </span>
-        </div>
+          <div id="glDetailRow" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <input type="checkbox" id="includeGLDetail" style="width:14px;height:14px;cursor:pointer;">
+            <label for="includeGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+              Include full GL detail tabs
+            </label>
+            <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
+              (GL data is summarized by default)
+            </span>
+          </div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-          <input type="checkbox" id="includeARaging" style="width:14px;height:14px;cursor:pointer;">
-          <label for="includeARaging" id="labelARaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-            Include AR Aging
-          </label>
-        </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <input type="checkbox" id="includeARaging" style="width:14px;height:14px;cursor:pointer;">
+            <label for="includeARaging" id="labelARaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+              Include AR Aging
+            </label>
+          </div>
 
-        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-          <input type="checkbox" id="includeAPaging" style="width:14px;height:14px;cursor:pointer;">
-          <label for="includeAPaging" id="labelAPaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-            Include AP Aging
-          </label>
-        </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <input type="checkbox" id="includeAPaging" style="width:14px;height:14px;cursor:pointer;">
+            <label for="includeAPaging" id="labelAPaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+              Include AP Aging
+            </label>
+          </div>
 
-        <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
-          <input type="checkbox" id="includePortalData" style="width:14px;height:14px;cursor:pointer;">
-          <label for="includePortalData" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-            Include portal data tabs
-          </label>
-          <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
-            (adds Portal_IS_Flat and Portal_BS_Flat)
-          </span>
-        </div>
+          <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
+            <input type="checkbox" id="includePortalData" style="width:14px;height:14px;cursor:pointer;">
+            <label for="includePortalData" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+              Include portal data tabs
+            </label>
+            <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
+              (adds Portal_IS_Flat and Portal_BS_Flat)
+            </span>
+          </div>
 
-        <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
-          <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="flex:1;">
-            <span id="btnLiteLabel">Generate Report</span>
-            <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
-          </button>
-          <button class="btn-stop" id="btnLiteStop" style="display:none;" onclick="stopReport()">Stop</button>
+          <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
+            <button class="btn-primary" id="btnLiteGenerate" onclick="generate()" style="flex:1;">
+              <span id="btnLiteLabel">Generate Report</span>
+              <span class="btn-spinner hidden" id="btnLiteSpinner"></span>
+            </button>
+            <button class="btn-stop" id="btnLiteStop" style="display:none;" onclick="stopReport()">Stop</button>
+          </div>
         </div>
       </div>
 
@@ -1651,8 +1655,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Apply plan-based visibility
   const portalRow = $('portalDataRow');
   if (portalRow) portalRow.style.display = hasFeature('portal') ? 'flex' : 'none';
-  const glDetailRow = $('includeGLDetail');
-  if (glDetailRow) glDetailRow.parentElement.style.display = hasFeature('gl_detail') ? 'flex' : 'none';
+  const glDetailRow = $('glDetailRow');
+  if (glDetailRow) glDetailRow.style.display = hasFeature('gl_detail') ? 'flex' : 'none';
   const mappingCard = $('mappingSelectionCard');
   if (mappingCard) mappingCard.style.display = hasFeature('mapping') ? '' : 'none';
 
