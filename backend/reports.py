@@ -427,9 +427,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             bs_amt_col_i, bs_amt_col_l = _cl(hdr_bsg, "Ending Balance")
                             bs_mon_col_i, bs_mon_col_l = _cl(hdr_bsg, "Month")
+                            _, bs_acct_col_l = _cl(hdr_bsg, "Account")
                             _, bs_sec_col_l = _cl(hdr_bsg, sec_label)
 
-                            if not bs_mon_col_i or not bs_amt_col_l or not bs_sec_col_l:
+                            if not bs_mon_col_i or not bs_amt_col_l or not bs_sec_col_l or not bs_acct_col_l:
                                 continue
 
                             # Collect BS month-end dates
@@ -507,12 +508,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 except Exception:
                                     return f'"{mk}"'
 
-                            def write_bs_block(sections_list, total_label):
+                            def write_bs_block(sections_list, total_label, include_net_income=False):
                                 nonlocal cr
                                 sec_data_rows = []
                                 for sec in sections_list:
-                                    if sec not in bs_sec_groups:
-                                        continue
                                     ws_sum.cell(cr, 1, sec)
                                     sec_data_rows.append(cr)
                                     for ci, mk in enumerate(bs_month_keys, 2):
@@ -525,15 +524,32 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
                                     cr += 1
 
-                                if not sec_data_rows:
-                                    return
+                                # Net Income row (cumulative YTD from BS Balances) — Equity block only
+                                ni_row = None
+                                if include_net_income:
+                                    ni_row = cr
+                                    ws_sum.cell(cr, 1, "Net Income").font = LINK_FONT
+                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                        date_f = _bs_date_f(mk)
+                                        formula = (
+                                            f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                            f"'BS Balances'!${bs_acct_col_l}:${bs_acct_col_l},\"Net Income\","
+                                            f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
+                                        )
+                                        c = ws_sum.cell(cr, ci, formula)
+                                        c.number_format = NUM_FMT
+                                        c.font = LINK_FONT
+                                    cr += 1
 
-                                # Total row
+                                # Total row — include Net Income for Equity
                                 total_row = cr
                                 ws_sum.cell(cr, 1, total_label).font = BOLD
+                                sum_rows = list(sec_data_rows)
+                                if ni_row is not None:
+                                    sum_rows.append(ni_row)
                                 for ci in range(2, num_bs_mo + 2):
                                     cl = get_column_letter(ci)
-                                    refs = "+".join(f"{cl}{r}" for r in sec_data_rows)
+                                    refs = "+".join(f"{cl}{r}" for r in sum_rows)
                                     ws_sum.cell(cr, ci, f"={refs}").number_format = NUM_FMT
                                     ws_sum.cell(cr, ci).font = BOLD
                                 cr += 1
@@ -578,10 +594,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws_sum.conditional_formatting.add(dr,
                                     CellIsRule(operator="equal", formula=["0"], font=GRN_FONT, fill=GRN_FILL))
                                 cr += 2
+                                return total_row
 
                             write_bs_block(ASSET_SECS, "Total Assets")
-                            write_bs_block(LIAB_SECS, "Total Liabilities")
-                            write_bs_block(EQ_SECS, "Total Equity")
+                            tl_row = write_bs_block(LIAB_SECS, "Total Liabilities")
+                            te_row = write_bs_block(EQ_SECS, "Total Equity", include_net_income=True)
+
+                            # Total Liabilities & Equity
+                            ws_sum.cell(cr, 1, "Total Liabilities & Equity").font = BOLD
+                            for ci in range(2, num_bs_mo + 2):
+                                cl = get_column_letter(ci)
+                                ws_sum.cell(cr, ci, f"={cl}{tl_row}+{cl}{te_row}").number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 2
 
                         # Column widths for Map Summary
                         ws_sum.column_dimensions["A"].width = 28
