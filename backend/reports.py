@@ -419,13 +419,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             cr += 2
 
                             # ── BS Section ──────────────────────────────────
-                            if "BS GL Summary" not in wb.sheetnames:
+                            if "BS Balances" not in wb.sheetnames:
                                 continue
-                            ws_bsg  = wb["BS GL Summary"]
+                            ws_bsg  = wb["BS Balances"]
                             hdr_bsg = [ws_bsg.cell(1, c).value
                                        for c in range(1, ws_bsg.max_column + 1)]
 
-                            bs_amt_col_i, bs_amt_col_l = _cl(hdr_bsg, "Amount")
+                            bs_amt_col_i, bs_amt_col_l = _cl(hdr_bsg, "Ending Balance")
                             bs_mon_col_i, bs_mon_col_l = _cl(hdr_bsg, "Month")
                             _, bs_sec_col_l = _cl(hdr_bsg, sec_label)
 
@@ -518,9 +518,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     for ci, mk in enumerate(bs_month_keys, 2):
                                         date_f = _bs_date_f(mk)
                                         formula = (
-                                            f"=SUMIFS('BS GL Summary'!${bs_amt_col_l}:${bs_amt_col_l},"
-                                            f"'BS GL Summary'!${bs_sec_col_l}:${bs_sec_col_l},\"{sec}\","
-                                            f"'BS GL Summary'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
+                                            f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                            f"'BS Balances'!${bs_sec_col_l}:${bs_sec_col_l},\"{sec}\","
+                                            f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
                                         )
                                         ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
                                     cr += 1
@@ -538,22 +538,30 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     ws_sum.cell(cr, ci).font = BOLD
                                 cr += 1
 
-                                # BS GL Summary reference row — same SUMIFS, serves as cross-check
+                                # Balance Sheet report reference row — cross-check against QBO Balance Sheet tab
                                 bs_ref_row = cr
-                                ws_sum.cell(cr, 1, f"{total_label} \u2014 per BS GL Summary").font = LINK_FONT
-                                for ci, mk in enumerate(bs_month_keys, 2):
-                                    date_f = _bs_date_f(mk)
-                                    # Sum all sections in this block
-                                    sec_parts = [
-                                        f"SUMIFS('BS GL Summary'!${bs_amt_col_l}:${bs_amt_col_l},"
-                                        f"'BS GL Summary'!${bs_sec_col_l}:${bs_sec_col_l},\"{s}\","
-                                        f"'BS GL Summary'!${bs_mon_col_l}:${bs_mon_col_l},{date_f})"
-                                        for s in sections_list if s in bs_sec_groups
-                                    ]
-                                    formula = "=" + "+".join(sec_parts) if sec_parts else "=0"
-                                    c = ws_sum.cell(cr, ci, formula)
-                                    c.number_format = NUM_FMT
-                                    c.font = LINK_FONT
+                                ws_sum.cell(cr, 1, f"{total_label} \u2014 QBO Balance Sheet").font = LINK_FONT
+                                if "Balance Sheet" in wb.sheetnames:
+                                    ws_bs_rpt = wb["Balance Sheet"]
+                                    bs_rpt_hdr = [ws_bs_rpt.cell(1, c).value
+                                                  for c in range(1, ws_bs_rpt.max_column + 1)]
+                                    # Find the row matching total_label in the Balance Sheet tab
+                                    bs_match_row = None
+                                    for bri in range(2, ws_bs_rpt.max_row + 1):
+                                        lbl = str(ws_bs_rpt.cell(bri, 1).value or "").strip()
+                                        if lbl.lower() == total_label.lower():
+                                            bs_match_row = bri
+                                            break
+                                    if bs_match_row:
+                                        for ci, mk in enumerate(bs_month_keys, 2):
+                                            ml_s = bs_month_display.get(mk, mk)
+                                            for pci, ph in enumerate(bs_rpt_hdr):
+                                                if str(ph or "").strip() == ml_s:
+                                                    c = ws_sum.cell(cr, ci,
+                                                        f"='Balance Sheet'!{get_column_letter(pci+1)}{bs_match_row}")
+                                                    c.number_format = NUM_FMT
+                                                    c.font = LINK_FONT
+                                                    break
                                 cr += 1
 
                                 # Difference row — black font, conditional fill only

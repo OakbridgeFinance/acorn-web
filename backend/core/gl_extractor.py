@@ -1081,68 +1081,88 @@ def _fetch_ap_aging(alias, as_of_date, progress_fn):
 
 def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
                        end_date: str):
-    """Write an AR Aging or AP Aging tab with subtitle, formatted headers, and data."""
-    from openpyxl.styles import Alignment
+    """Write an AR Aging or AP Aging tab with title, subtitle, formatted headers, and data."""
     from openpyxl.utils import get_column_letter
 
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
 
+    if tab_name == "AR Aging":
+        title = "Accounts Receivable Aging"
+    elif tab_name == "AP Aging":
+        title = "Accounts Payable Aging"
+    else:
+        title = tab_name
+
+    ws.cell(row=1, column=1, value=title).font = BOLD_FONT
+
     if not rows or len(rows) < 2:
-        ws.cell(row=1, column=1, value="No data").font = PLAIN_FONT
+        ws.cell(row=2, column=1, value="No data").font = PLAIN_FONT
         return
 
-    # Row 1: subtitle — "As of Month DD, YYYY"
     dt = datetime.strptime(end_date, "%Y-%m-%d")
     subtitle = f"As of {dt.strftime('%B %d, %Y')}"
-    ws.cell(row=1, column=1, value=subtitle).font = BOLD_FONT
+    ws.cell(row=2, column=1, value=subtitle).font = _font(italic=True)
 
-    # Row 2: column headers
     headers = rows[0]
     for ci, val in enumerate(headers, 1):
-        c = ws.cell(row=2, column=ci, value=val)
+        c = ws.cell(row=4, column=ci, value=val)
         c.font = HDR_FONT
         c.fill = HDR_FILL
-        c.alignment = Alignment(horizontal="center" if ci > 1 else "left")
+        c.alignment = _AL(horizontal="center" if ci > 1 else "left")
 
-    # Parse the aging data to identify row types for formatting
-    parsed = _parse_aging_report.__code__  # we already have parsed rows
-    # Re-derive row types from the data
     data_rows = rows[1:]
     last_idx = len(data_rows) - 1
 
+    # Pre-compute which non-total rows are group headers: a row is a group
+    # header if a later "Total {label}" subtotal row exists that matches its
+    # name. This lets us render the QBO section header bold with no indent
+    # and indent its child detail rows.
+    labels_lower = [str(r[0] or "").strip().lower() if r else "" for r in data_rows]
+    group_header_targets = set()
+    for i, lbl in enumerate(labels_lower):
+        if lbl.startswith("total "):
+            target = lbl[len("total "):].strip()
+            if target:
+                group_header_targets.add(target)
+
     for ri, row in enumerate(data_rows):
-        excel_row = ri + 3  # data starts at row 3
-        label = str(row[0] or "").strip().lower() if row else ""
-        is_total = label.startswith("total")
+        excel_row = ri + 5  # data starts at row 5
+        label_lower = labels_lower[ri]
+        is_total = label_lower.startswith("total")
         is_grand = (ri == last_idx and is_total)
+        is_group_header = (not is_total) and (label_lower in group_header_targets)
+        is_detail = (not is_total) and (not is_group_header)
 
         for ci in range(1, len(row) + 1):
             val = row[ci - 1] if (ci - 1) < len(row) else None
             c = ws.cell(row=excel_row, column=ci, value=val)
-            c.font = BOLD_FONT if is_total else PLAIN_FONT
+
+            if is_total or is_group_header:
+                c.font = BOLD_FONT
+            else:
+                c.font = PLAIN_FONT
 
             if ci == 1:
-                c.alignment = Alignment(horizontal="left")
-            elif isinstance(val, (int, float)):
-                c.number_format = _ACCT_FMT
-                c.alignment = Alignment(horizontal="right")
+                if is_detail:
+                    c.alignment = _AL(horizontal="left", indent=1)
+                else:
+                    c.alignment = _AL(horizontal="left")
+            else:
+                if isinstance(val, (int, float)):
+                    c.number_format = _ACCT_FMT
+                c.alignment = _AL(horizontal="right")
 
             if is_grand:
                 c.border = _Bdr(top=THIN, bottom=DOUBLE)
             elif is_total:
                 c.border = _Bdr(top=THIN)
 
-    # Autofit column widths
-    for ci in range(1, len(headers) + 1):
-        max_len = len(str(headers[ci - 1] or ""))
-        for ri in range(len(data_rows)):
-            cell_val = data_rows[ri][ci - 1] if (ci - 1) < len(data_rows[ri]) else ""
-            max_len = max(max_len, len(str(cell_val or "")))
-        ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 3, 40)
+    ws.column_dimensions["A"].width = 45
+    for ci in range(2, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 16
 
-    # Freeze below subtitle and header
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = "A5"
 
 
 # ── Validation (live formula version) ────────────────────────────────────────
