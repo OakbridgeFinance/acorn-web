@@ -995,6 +995,158 @@ def _fetch_pl_by_dimension(
     return rows
 
 
+# ── AR / AP Aging ────────────────────────────────────────────────────────────
+
+def _parse_aging_report(report_json: dict) -> list[list]:
+    """Parse a QBO AgedReceivables or AgedPayables report into flat rows.
+
+    Returns [header_row, data_row_1, ...] where column names are read
+    dynamically from the API response.
+    """
+    columns = report_json.get("Columns", {}).get("Column", [])
+    headers = [c.get("ColTitle", "") for c in columns]
+    if not headers:
+        return []
+
+    rows_section = report_json.get("Rows", {}).get("Row", [])
+    data_rows: list[list] = []
+
+    def _walk_rows(row_list, section_name=""):
+        for row in row_list:
+            row_type = row.get("type", "")
+            col_data = row.get("ColData", [])
+            # Header row for a section (customer/vendor group)
+            if row_type == "Section":
+                header_row = row.get("Header", {})
+                sub_rows = row.get("Rows", {}).get("Row", [])
+                sec_name = ""
+                if header_row and header_row.get("ColData"):
+                    sec_name = header_row["ColData"][0].get("value", "")
+                _walk_rows(sub_rows, sec_name)
+                # Summary (subtotal) row for the section
+                summary = row.get("Summary", {})
+                if summary and summary.get("ColData"):
+                    vals = [cd.get("value", "") for cd in summary["ColData"]]
+                    parsed = _parse_row_values(vals)
+                    data_rows.append(("subtotal", parsed))
+            elif col_data:
+                vals = [cd.get("value", "") for cd in col_data]
+                parsed = _parse_row_values(vals)
+                row_label = vals[0] if vals else ""
+                if row_label.lower().startswith("total"):
+                    data_rows.append(("total", parsed))
+                else:
+                    data_rows.append(("data", parsed))
+
+    def _parse_row_values(vals):
+        """Convert numeric strings to floats, leave others as-is."""
+        out = []
+        for i, v in enumerate(vals):
+            if i == 0:
+                out.append(v)
+            else:
+                try:
+                    out.append(float(v))
+                except (ValueError, TypeError):
+                    out.append(v if v else "")
+        return out
+
+    _walk_rows(rows_section)
+
+    result = [headers]
+    for _kind, row_vals in data_rows:
+        result.append(row_vals)
+    return result
+
+
+def _fetch_ar_aging(alias, as_of_date, progress_fn):
+    """Fetch AR Aging (AgedReceivables) report from QBO."""
+    raw = fetch_report(alias, "AgedReceivables", {
+        "date_macro": "Custom",
+        "report_date": as_of_date,
+    })
+    rows = _parse_aging_report(raw)
+    progress_fn(f"  AR Aging: {len(rows) - 1 if rows else 0} rows")
+    return rows
+
+
+def _fetch_ap_aging(alias, as_of_date, progress_fn):
+    """Fetch AP Aging (AgedPayables) report from QBO."""
+    raw = fetch_report(alias, "AgedPayables", {
+        "date_macro": "Custom",
+        "report_date": as_of_date,
+    })
+    rows = _parse_aging_report(raw)
+    progress_fn(f"  AP Aging: {len(rows) - 1 if rows else 0} rows")
+    return rows
+
+
+def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
+                       end_date: str):
+    """Write an AR Aging or AP Aging tab with subtitle, formatted headers, and data."""
+    from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
+
+    ws = wb.create_sheet(tab_name)
+    ws.sheet_view.showGridLines = False
+
+    if not rows or len(rows) < 2:
+        ws.cell(row=1, column=1, value="No data").font = PLAIN_FONT
+        return
+
+    # Row 1: subtitle — "As of Month DD, YYYY"
+    dt = datetime.strptime(end_date, "%Y-%m-%d")
+    subtitle = f"As of {dt.strftime('%B %d, %Y')}"
+    ws.cell(row=1, column=1, value=subtitle).font = BOLD_FONT
+
+    # Row 2: column headers
+    headers = rows[0]
+    for ci, val in enumerate(headers, 1):
+        c = ws.cell(row=2, column=ci, value=val)
+        c.font = HDR_FONT
+        c.fill = HDR_FILL
+        c.alignment = Alignment(horizontal="center" if ci > 1 else "left")
+
+    # Parse the aging data to identify row types for formatting
+    parsed = _parse_aging_report.__code__  # we already have parsed rows
+    # Re-derive row types from the data
+    data_rows = rows[1:]
+    last_idx = len(data_rows) - 1
+
+    for ri, row in enumerate(data_rows):
+        excel_row = ri + 3  # data starts at row 3
+        label = str(row[0] or "").strip().lower() if row else ""
+        is_total = label.startswith("total")
+        is_grand = (ri == last_idx and is_total)
+
+        for ci in range(1, len(row) + 1):
+            val = row[ci - 1] if (ci - 1) < len(row) else None
+            c = ws.cell(row=excel_row, column=ci, value=val)
+            c.font = BOLD_FONT if is_total else PLAIN_FONT
+
+            if ci == 1:
+                c.alignment = Alignment(horizontal="left")
+            elif isinstance(val, (int, float)):
+                c.number_format = _ACCT_FMT
+                c.alignment = Alignment(horizontal="right")
+
+            if is_grand:
+                c.border = _Bdr(top=THIN, bottom=DOUBLE)
+            elif is_total:
+                c.border = _Bdr(top=THIN)
+
+    # Autofit column widths
+    for ci in range(1, len(headers) + 1):
+        max_len = len(str(headers[ci - 1] or ""))
+        for ri in range(len(data_rows)):
+            cell_val = data_rows[ri][ci - 1] if (ci - 1) < len(data_rows[ri]) else ""
+            max_len = max(max_len, len(str(cell_val or "")))
+        ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 3, 40)
+
+    # Freeze below subtitle and header
+    ws.freeze_panes = "A3"
+
+
 # ── Validation (live formula version) ────────────────────────────────────────
 
 def _fetch_qbo_report_totals(
@@ -1799,6 +1951,8 @@ def generate_lite(
     cancel_fn: Callable[[], bool] | None = None,
     dimension: str = "class",
     include_gl_detail: bool = False,
+    include_ar_aging: bool = False,
+    include_ap_aging: bool = False,
 ) -> dict:
     """
     Run Acorn Lite extraction — three pulls to one Excel file.
@@ -1870,7 +2024,7 @@ def generate_lite(
             wb.calculation.calcMode = "auto"
             wb.calculation.fullCalcOnLoad = True
             # Remove old tabs if they exist, then recreate
-            for tab_name in ("IS GL Detail", "BS GL Detail", "BS Balances", "P&L", "Balance Sheet", "Validation"):
+            for tab_name in ("IS GL Detail", "BS GL Detail", "BS Balances", "AR Aging", "AP Aging", "P&L", "Balance Sheet", "Validation"):
                 if tab_name in wb.sheetnames:
                     del wb[tab_name]
         else:
@@ -1912,6 +2066,26 @@ def generate_lite(
         _write_sheet(wb, "IS GL Detail", is_rows)
         _write_sheet(wb, "BS GL Detail", bs_rows)
     _write_sheet(wb, "BS Balances", bal_rows)
+
+    # ── AR / AP Aging tabs (optional) ─────────────────────────────────────
+    if include_ar_aging:
+        try:
+            progress_fn("\n  Fetching AR Aging...")
+            ar_rows = _fetch_ar_aging(alias, end_date, progress_fn)
+            if ar_rows and len(ar_rows) > 1:
+                _write_aging_sheet(wb, "AR Aging", ar_rows, end_date)
+        except Exception as _ar_err:
+            progress_fn(f"  WARNING: AR Aging failed — {_ar_err}")
+
+    if include_ap_aging:
+        try:
+            progress_fn("\n  Fetching AP Aging...")
+            ap_rows = _fetch_ap_aging(alias, end_date, progress_fn)
+            if ap_rows and len(ap_rows) > 1:
+                _write_aging_sheet(wb, "AP Aging", ap_rows, end_date)
+        except Exception as _ap_err:
+            progress_fn(f"  WARNING: AP Aging failed — {_ap_err}")
+
     # Build P&L cross-check: Net Income from P&L report vs IS GL Summary SUMIFS
     # Dynamic column lookup — resolve column letters from summary headers
     def _col_letter(headers, col_name):

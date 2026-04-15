@@ -177,6 +177,20 @@
           </span>
         </div>
 
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <input type="checkbox" id="includeARaging" style="width:14px;height:14px;cursor:pointer;">
+          <label for="includeARaging" id="labelARaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+            Include AR Aging
+          </label>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <input type="checkbox" id="includeAPaging" style="width:14px;height:14px;cursor:pointer;">
+          <label for="includeAPaging" id="labelAPaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+            Include AP Aging
+          </label>
+        </div>
+
         <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
           <input type="checkbox" id="includePortalData" style="width:14px;height:14px;cursor:pointer;">
           <label for="includePortalData" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
@@ -680,6 +694,10 @@ function onPeriodChange() {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if ($('liteDateStart')) $('liteDateStart').value = fmt(s);
     if ($('liteDateEnd'))   $('liteDateEnd').value   = fmt(e);
+    // Update AR/AP aging labels
+    const formatted = e.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    if ($('labelARaging')) $('labelARaging').textContent = 'Include AR Aging (as of ' + formatted + ')';
+    if ($('labelAPaging')) $('labelAPaging').textContent = 'Include AP Aging (as of ' + formatted + ')';
   }
 }
 
@@ -753,6 +771,8 @@ async function generate() {
         selected_maps:     getSelectedMaps(),
         include_gl_detail:  $('includeGLDetail')?.checked || false,
         include_portal_data: $('includePortalData')?.checked || false,
+        include_ar_aging:   $('includeARaging')?.checked || false,
+        include_ap_aging:   $('includeAPaging')?.checked || false,
       }),
     });
     const data = await res.json();
@@ -1658,6 +1678,18 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       this.style.borderColor = '';
       this.title = '';
+    }
+    // Update AR/AP Aging labels with formatted end date
+    const arLabel = $('labelARaging');
+    const apLabel = $('labelAPaging');
+    if (this.value) {
+      const d = new Date(this.value + 'T00:00:00');
+      const formatted = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      if (arLabel) arLabel.textContent = 'Include AR Aging (as of ' + formatted + ')';
+      if (apLabel) apLabel.textContent = 'Include AP Aging (as of ' + formatted + ')';
+    } else {
+      if (arLabel) arLabel.textContent = 'Include AR Aging';
+      if (apLabel) apLabel.textContent = 'Include AP Aging';
     }
   });
 });

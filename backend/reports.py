@@ -29,12 +29,16 @@ class GenerateRequest(BaseModel):
     selected_maps:      list[str] = []
     include_gl_detail:  bool = False
     include_portal_data: bool = False
+    include_ar_aging:   bool = False
+    include_ap_aging:   bool = False
 
 def run_report_job(job_id: str, user_id: str, realm_id: str,
                    start_date: str, end_date: str, dimension: str,
                    selected_maps: list[str] | None = None,
                    include_gl_detail: bool = False,
-                   include_portal_data: bool = False):
+                   include_portal_data: bool = False,
+                   include_ar_aging: bool = False,
+                   include_ap_aging: bool = False):
     """Run in a background thread — fetches QBO data and generates Excel file."""
     try:
         update_job(job_id, status="running")
@@ -119,6 +123,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 dimension=dimension,
                 progress_fn=progress_fn,
                 include_gl_detail=include_gl_detail,
+                include_ar_aging=include_ar_aging,
+                include_ap_aging=include_ap_aging,
             )
             file_path = result["path"]
 
@@ -687,7 +693,8 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
         args=(job["id"], str(user.id), body.realm_id,
               body.start_date, body.end_date, body.dimension,
               body.selected_maps, body.include_gl_detail,
-              body.include_portal_data),
+              body.include_portal_data,
+              body.include_ar_aging, body.include_ap_aging),
         daemon=True,
     )
     thread.start()
