@@ -831,12 +831,31 @@ function pollJob(jobId) {
             let suggestedName = urlParts[urlParts.length - 1].split('?')[0] || 'report.xlsx';
             suggestedName = decodeURIComponent(suggestedName);
 
+            const lastFilename = state.realmId
+              ? localStorage.getItem('acorn_last_filename_' + state.realmId)
+              : null;
+
             const wrapper = document.createElement('div');
             wrapper.style.marginTop = '16px';
             wrapper.innerHTML =
-              '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">Save Report As</button>' +
+              '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">' +
+                '<button id="saveAsBtn" class="btn-primary" style="gap:8px;">Save Report As</button>' +
+                (lastFilename
+                  ? '<button id="saveSameBtn" class="btn-primary" style="gap:8px; background:transparent; color:var(--accent); border:1px solid var(--accent); box-shadow:none;">Save as Same File</button>'
+                  : '') +
+              '</div>' +
+              (lastFilename
+                ? '<div id="lastSavedRow" style="margin-top:6px; font-size:12px; color:#888;">' +
+                    'Last saved as: <span id="lastSavedName"></span>' +
+                  '</div>'
+                : '') +
               '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>';
             banner.appendChild(wrapper);
+
+            if (lastFilename) {
+              $('lastSavedName').textContent = lastFilename;
+              $('saveSameBtn').onclick = function() { saveSameFile(job.file_url, lastFilename); };
+            }
 
             $('saveAsBtn').onclick = function() { saveReportAs(job.file_url, suggestedName); };
           }
@@ -854,6 +873,11 @@ function pollJob(jobId) {
 }
 
 // ── Save As ─────────────────────────────────────────────────────────────────
+function rememberLastFilename(name) {
+  if (!state.realmId || !name) return;
+  localStorage.setItem('acorn_last_filename_' + state.realmId, name);
+}
+
 async function saveReportAs(fileUrl, suggestedName) {
   try {
     const btn = $('saveAsBtn');
@@ -876,6 +900,7 @@ async function saveReportAs(fileUrl, suggestedName) {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
+      rememberLastFilename(handle.name || suggestedName);
       if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
       showSaveSuccess('File saved successfully.');
     } else {
@@ -888,6 +913,7 @@ async function saveReportAs(fileUrl, suggestedName) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      rememberLastFilename(suggestedName);
       if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     }
   } catch (e) {
@@ -896,6 +922,32 @@ async function saveReportAs(fileUrl, suggestedName) {
     if (e.name !== 'AbortError') {
       alert('Could not save file: ' + e.message);
     }
+  }
+}
+
+async function saveSameFile(fileUrl, filename) {
+  const btn = $('saveSameBtn');
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
+
+    const response = await fetch(fileUrl);
+    if (!response.ok) throw new Error('Could not fetch report file');
+    const blob = await response.blob();
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
+    showSaveSuccess('File saved as ' + filename + '.');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
+    alert('Could not save file: ' + e.message);
   }
 }
 
