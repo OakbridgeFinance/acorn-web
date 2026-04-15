@@ -1062,7 +1062,6 @@ def _parse_aging_report(report_json: dict) -> list[list]:
 def _fetch_ar_aging(alias, as_of_date, progress_fn):
     """Fetch AR Aging (AgedReceivables) report from QBO."""
     raw = fetch_report(alias, "AgedReceivables", {
-        "date_macro": "Custom",
         "report_date": as_of_date,
     })
     rows = _parse_aging_report(raw)
@@ -1073,7 +1072,6 @@ def _fetch_ar_aging(alias, as_of_date, progress_fn):
 def _fetch_ap_aging(alias, as_of_date, progress_fn):
     """Fetch AP Aging (AgedPayables) report from QBO."""
     raw = fetch_report(alias, "AgedPayables", {
-        "date_macro": "Custom",
         "report_date": as_of_date,
     })
     rows = _parse_aging_report(raw)
