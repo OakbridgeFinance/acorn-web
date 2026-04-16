@@ -72,7 +72,10 @@ class RefreshRequest(BaseModel):
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Validate JWT token and return user."""
-    supabase = get_supabase_admin()
+    # Use the anon client: JWT verification doesn't need service-role
+    # privileges, and using the admin client here would expand the blast
+    # radius if this function ever grows beyond simple token validation.
+    supabase = get_supabase_anon()
     try:
         result = supabase.auth.get_user(credentials.credentials)
         return result.user
