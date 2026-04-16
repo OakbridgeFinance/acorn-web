@@ -5,6 +5,7 @@ import os
 import logging
 import threading
 import tempfile
+from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
@@ -20,6 +21,36 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+def _parse_report_dates(start_date: str, end_date: str) -> tuple[date, date]:
+    """Validate start_date / end_date strings and return parsed date objects.
+
+    Raises HTTPException(400) on bad format, reversed range, or out-of-band
+    values (>20y in the past or >1y in the future).
+    """
+    try:
+        s = datetime.strptime(start_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+    try:
+        e = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+
+    if s > e:
+        raise HTTPException(status_code=400, detail="start_date must be on or before end_date")
+
+    today    = date.today()
+    earliest = today - timedelta(days=365 * 20)
+    latest   = today + timedelta(days=365)
+    if s < earliest or e > latest:
+        raise HTTPException(
+            status_code=400,
+            detail="Dates must be within 20 years past and 1 year future",
+        )
+    return s, e
+
 
 class GenerateRequest(BaseModel):
     realm_id:          str
@@ -708,6 +739,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 @router.post("/generate")
 def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
+    _parse_report_dates(body.start_date, body.end_date)
+
     # Enforce plan-based feature gates
     plan = (user.app_metadata or {}).get("plan", "starter")
     if plan != "admin":
