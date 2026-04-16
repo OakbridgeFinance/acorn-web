@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
@@ -9,9 +10,16 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Acorn API")
 
+_cors_env = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if _cors_env:
+    allowed_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    allowed_origins = ["https://acorn.oakbridgefinance.com"]
+logger.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
