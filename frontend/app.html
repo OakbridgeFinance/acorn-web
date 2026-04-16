@@ -280,15 +280,6 @@
           <button class="maps-stmt-btn" data-stmt="BS" onclick="mapsSetStatement('BS')">Balance Sheet</button>
         </div>
 
-        <div class="maps-date-filter">
-          <label class="field-label" style="margin-right:6px;">Show accounts active from</label>
-          <input type="date" class="input" id="mapsFilterStart" style="width:130px" onchange="mapsApplyFilter()" />
-          <span style="color:var(--text-light);margin:0 4px;">to</span>
-          <input type="date" class="input" id="mapsFilterEnd" style="width:130px" onchange="mapsApplyFilter()" />
-          <button class="btn-outline btn-sm" style="margin-left:8px;" onclick="mapsApplyFilter()">Apply</button>
-          <span class="maps-filter-count" id="mapsFilterCount"></span>
-        </div>
-
         <div class="maps-layout" id="mapsLayout">
           <div class="maps-panel maps-panel--accounts" id="mapsPanelAccounts">
             <div class="maps-panel-header" style="flex-wrap:wrap;">
@@ -302,6 +293,12 @@
                 </select>
                 <input type="text" class="input maps-search" id="mapsAccountSearch"
                        placeholder="Search accounts..." oninput="mapsRenderAccounts()" style="margin-top:0;" />
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; width:100%; margin-top:6px;">
+                <span id="mapsFilterCount" style="font-size:11px;color:var(--text-light);white-space:nowrap;"></span>
+                <div style="width:200px;height:8px;background:#E0E0E0;border-radius:4px;overflow:hidden;flex-shrink:0;">
+                  <div id="mapsProgressFill" style="height:100%;width:0%;border-radius:4px;transition:width 0.3s;background:#29A1AF;"></div>
+                </div>
               </div>
             </div>
             <div class="maps-account-list" id="mapsAccountList"></div>
@@ -1326,6 +1323,12 @@ function mapsRenderAccounts() {
     const shown = accts.length;
     const mapped = assigned.size;
     fc.textContent = `${shown} shown \u00b7 ${mapped} mapped of ${total}`;
+    const fill = $('mapsProgressFill');
+    if (fill) {
+      const pct = total > 0 ? Math.round((mapped / total) * 100) : 0;
+      fill.style.width = pct + '%';
+      fill.style.background = pct >= 100 ? '#07393C' : '#29A1AF';
+    }
   }
 }
 
