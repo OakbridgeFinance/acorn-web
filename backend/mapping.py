@@ -13,7 +13,7 @@ load_dotenv()
 
 def _require_mapping_plan(user):
     """Raise 403 if user's plan doesn't include mapping."""
-    plan = (user.user_metadata or {}).get("plan", "starter")
+    plan = (user.app_metadata or {}).get("plan", "starter")
     if plan not in ("pro", "admin"):
         raise HTTPException(status_code=403, detail="Mapping requires Pro plan")
 

@@ -709,7 +709,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
     # Enforce plan-based feature gates
-    plan = (user.user_metadata or {}).get("plan", "starter")
+    plan = (user.app_metadata or {}).get("plan", "starter")
     if plan != "admin":
         body.include_portal_data = False
         body.include_gl_detail = False
