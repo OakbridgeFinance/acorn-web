@@ -236,8 +236,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws.cell(1, gc).fill = GL_HDR_FILL
                                 ws.cell(1, sc, f"{mname} - Statement Section").font = GL_HDR_FONT
                                 ws.cell(1, sc).fill = GL_HDR_FILL
-                                ws.column_dimensions[get_column_letter(gc)].width = 24
-                                ws.column_dimensions[get_column_letter(sc)].width = 22
                                 for ri in range(2, ws.max_row + 1):
                                     v = ws.cell(ri, acct_col).value
                                     if not v:
@@ -246,6 +244,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     if match:
                                         ws.cell(ri, gc, match[0])
                                         ws.cell(ri, sc, match[1])
+
+                            # Autofit mapping columns after all data is written
+                            for ci in range(base, ws.max_column + 1):
+                                max_len = 0
+                                for ri in range(1, ws.max_row + 1):
+                                    cv = ws.cell(ri, ci).value
+                                    if cv is not None:
+                                        max_len = max(max_len, len(str(cv)))
+                                ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 4, 60)
 
                         # ── Map Summary tab ────────────────────────────────
                         if "Map Summary" in wb.sheetnames:
@@ -627,16 +634,46 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 cr += 2
                                 return total_row
 
-                            write_bs_block(ASSET_SECS, "Total Assets")
-                            tl_row = write_bs_block(LIAB_SECS, "Total Liabilities")
-                            te_row = write_bs_block(EQ_SECS, "Total Equity", include_net_income=True)
+                            ta_row  = write_bs_block(ASSET_SECS, "Total Assets")
+                            tl_row  = write_bs_block(LIAB_SECS, "Total Liabilities")
+                            te_row  = write_bs_block(EQ_SECS, "Total Equity", include_net_income=True)
 
                             # Total Liabilities & Equity
+                            tle_row = cr
                             ws_sum.cell(cr, 1, "Total Liabilities & Equity").font = BOLD
                             for ci in range(2, num_bs_mo + 2):
                                 cl = get_column_letter(ci)
                                 ws_sum.cell(cr, ci, f"={cl}{tl_row}+{cl}{te_row}").number_format = NUM_FMT
                                 ws_sum.cell(cr, ci).font = BOLD
+                            cr += 2
+
+                            # Balance check — Total Assets vs Total Liabilities & Equity
+                            ws_sum.cell(cr, 1, "Total Assets").font = BOLD
+                            for ci in range(2, num_bs_mo + 2):
+                                cl = get_column_letter(ci)
+                                ws_sum.cell(cr, ci, f"={cl}{ta_row}").number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 1
+
+                            ws_sum.cell(cr, 1, "Total Liabilities & Equity").font = BOLD
+                            for ci in range(2, num_bs_mo + 2):
+                                cl = get_column_letter(ci)
+                                ws_sum.cell(cr, ci, f"={cl}{tle_row}").number_format = NUM_FMT
+                                ws_sum.cell(cr, ci).font = BOLD
+                            cr += 1
+
+                            bal_diff_row = cr
+                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
+                            for ci in range(2, num_bs_mo + 2):
+                                cl = get_column_letter(ci)
+                                c = ws_sum.cell(cr, ci, f"={cl}{ta_row}-{cl}{tle_row}")
+                                c.number_format = NUM_FMT
+                                c.font = Font(name="Arial", size=10)
+                            bdr = f"B{bal_diff_row}:{get_column_letter(num_bs_mo + 1)}{bal_diff_row}"
+                            ws_sum.conditional_formatting.add(bdr,
+                                CellIsRule(operator="notEqual", formula=["0"], font=RED_FONT, fill=RED_FILL))
+                            ws_sum.conditional_formatting.add(bdr,
+                                CellIsRule(operator="equal", formula=["0"], font=GRN_FONT, fill=GRN_FILL))
                             cr += 2
 
                         # Column widths for Map Summary
