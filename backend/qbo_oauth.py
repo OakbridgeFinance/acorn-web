@@ -7,8 +7,9 @@ sys.path.insert(0, str(Path(__file__).parent / "core"))
 import os
 import httpx
 import base64
+import secrets
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from backend.auth import get_current_user
@@ -16,6 +17,21 @@ from supabase import create_client
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Supabase schema for OAuth state storage (run once, manually) ─────────────
+# create table if not exists qbo_oauth_states (
+#   state       text primary key,
+#   user_id     uuid not null references auth.users(id) on delete cascade,
+#   created_at  timestamptz not null default now()
+# );
+# alter table qbo_oauth_states enable row level security;
+# -- No policies are defined intentionally: with RLS enabled and no policies,
+# -- only the service role (which bypasses RLS) can read or write this table,
+# -- which is exactly what the OAuth flow needs.
+# create index if not exists qbo_oauth_states_created_at_idx
+#   on qbo_oauth_states (created_at);
+
+OAUTH_STATE_TTL = timedelta(minutes=10)
 
 router = APIRouter(prefix="/api/qbo", tags=["qbo"])
 
@@ -37,13 +53,25 @@ def get_supabase():
 
 @router.get("/auth-url")
 def get_auth_url(user=Depends(get_current_user)):
-    """Return the QBO OAuth authorization URL."""
+    """Return the QBO OAuth authorization URL.
+
+    Generates a random one-time state token, persists it bound to the
+    requesting user, and includes it in the QBO authorize URL so the
+    callback can verify the redirect originated from this flow.
+    """
+    state = secrets.token_urlsafe(32)
+    supabase = get_supabase()
+    supabase.table("qbo_oauth_states").insert({
+        "state":   state,
+        "user_id": str(user.id),
+    }).execute()
+
     params = {
         "client_id":     QBO_CLIENT_ID,
         "response_type": "code",
         "scope":         QBO_SCOPES,
         "redirect_uri":  QBO_REDIRECT_URI,
-        "state":         str(user.id),
+        "state":         state,
     }
     url = QBO_AUTH_URL + "?" + urllib.parse.urlencode(params)
     return {"auth_url": url}
@@ -52,7 +80,27 @@ def get_auth_url(user=Depends(get_current_user)):
 @router.get("/callback")
 async def qbo_callback(code: str, realmId: str, state: str = ""):
     """Handle QBO OAuth callback — exchange code for tokens and store in Supabase."""
-    user_id = state  # we passed user_id as state
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing state parameter")
+
+    supabase = get_supabase()
+    state_row = supabase.table("qbo_oauth_states").select(
+        "user_id, created_at"
+    ).eq("state", state).execute()
+
+    if not state_row.data:
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
+
+    record    = state_row.data[0]
+    created_s = record["created_at"]
+    # Supabase returns ISO-8601 with offset; tolerate trailing "Z".
+    created   = datetime.fromisoformat(created_s.replace("Z", "+00:00"))
+    now_utc   = datetime.now(timezone.utc)
+    if now_utc - created > OAUTH_STATE_TTL:
+        supabase.table("qbo_oauth_states").delete().eq("state", state).execute()
+        raise HTTPException(status_code=400, detail="Invalid or expired state")
+
+    user_id = record["user_id"]
 
     # Exchange authorization code for tokens
     credentials = base64.b64encode(
@@ -107,8 +155,7 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
     except Exception:
         pass
 
-    # Store tokens in Supabase
-    supabase = get_supabase()
+    # Store tokens in Supabase (reuse the service-role client from above)
     supabase.table("qbo_tokens").upsert({
         "user_id":       user_id,
         "realm_id":      realmId,
@@ -118,6 +165,9 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
         "expires_at":    expires_at,
         "updated_at":    datetime.utcnow().isoformat(),
     }, on_conflict="user_id,realm_id").execute()
+
+    # Consume the state row (one-time use) so it can't be replayed.
+    supabase.table("qbo_oauth_states").delete().eq("state", state).execute()
 
     # Redirect back to app with success
     return RedirectResponse(url="/app.html?connected=true")
