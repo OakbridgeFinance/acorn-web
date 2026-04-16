@@ -600,6 +600,7 @@ async function reconnectQBO() {
     });
 
     if (res.ok) {
+      _mapsQboRefreshedRealm = realmId;
       if (btn) {
         btn.textContent = '\u2713 Connected';
         btn.style.color = '#10B981';
@@ -1028,6 +1029,7 @@ const _BS_ACCOUNT_TYPES = new Set(['Bank', 'Accounts Receivable', 'Other Current
 let mapsState = { allAccounts: [], maps: [], editing: null, groups: [], filteredAccounts: null, indentLevels: null, dirty: false, statement: 'IS', originalMap: null };
 let _mapsSelectedAccounts = new Set();
 let _mapsLastClickedIdx = -1;
+let _mapsQboRefreshedRealm = null;
 
 function _getRealmId() { return state.realmId; }
 
@@ -1055,6 +1057,17 @@ async function mapsLoadList() {
   show('mapsLoading'); hide('mapsListCards'); hide('mapsEmpty'); hide('mapsEditor');
   show('mapsListView');
   const realmId = _getRealmId();
+
+  if (realmId && _mapsQboRefreshedRealm !== realmId) {
+    try {
+      const rr = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      if (rr.ok) _mapsQboRefreshedRealm = realmId;
+    } catch (e) { /* proceed — token may still be valid */ }
+  }
+
   try {
     const [mapsResp, acctResp] = await Promise.all([
       fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() }).then(r => r.json()),
