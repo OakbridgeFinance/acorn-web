@@ -676,6 +676,266 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 CellIsRule(operator="equal", formula=["0"], font=GRN_FONT, fill=GRN_FILL))
                             cr += 2
 
+                            # ── Mapped P&L and BS tabs ──────────────────────
+                            try:
+                                from openpyxl.styles import Border, Side
+                                _THIN  = Side(style="thin")
+                                _DBLE  = Side(style="double")
+                                _MAPPL = Font(name="Arial", size=10)
+                                _MAPBD = Font(name="Arial", size=10, bold=True)
+                                _SEC_F = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+                                _SEC_BG = PatternFill("solid", fgColor="07393C")
+
+                                def _is_date_formula(mk):
+                                    mv = month_dates.get(mk)
+                                    if mv and hasattr(mv, 'year'):
+                                        return f"DATE({mv.year},{mv.month},{mv.day})"
+                                    try:
+                                        d = _dt.strptime(mk, "%Y-%m")
+                                        last = _cal.monthrange(d.year, d.month)[1]
+                                        return f"DATE({d.year},{d.month},{last})"
+                                    except Exception:
+                                        return f'"{mk}"'
+
+                                # ── {Map Name} P&L ─────────────────────────
+                                _is_sg = {}
+                                for gn, sc in is_groups:
+                                    _is_sg.setdefault(sc, []).append(gn)
+
+                                if _is_sg and is_grp_col_l:
+                                    _pl_tab = f"{map_name} P&L"
+                                    if _pl_tab in wb.sheetnames:
+                                        del wb[_pl_tab]
+                                    wpl = wb.create_sheet(_pl_tab)
+                                    wpl.sheet_view.showGridLines = False
+
+                                    wpl.cell(1, 1, f"{map_name} \u2014 Income Statement").font = _MAPBD
+                                    wpl.cell(3, 1, "Account").font = HDR_FONT
+                                    wpl.cell(3, 1).fill = HDR_FILL
+                                    for ci, mk in enumerate(month_keys, 2):
+                                        c = wpl.cell(3, ci, month_display.get(mk, mk))
+                                        c.font = HDR_FONT; c.fill = HDR_FILL
+                                        c.alignment = Alignment(horizontal="center")
+                                    wpl.cell(3, tot_col, "Total").font = HDR_FONT
+                                    wpl.cell(3, tot_col).fill = HDR_FILL
+
+                                    pr = 4
+                                    rr = {}  # section/calc label → total row number
+
+                                    PL_SECS = ["Revenue", "COS", "Cost of Goods Sold",
+                                                "Sales & Marketing", "Operating Expenses",
+                                                "Other Income", "Other Expense", "Other"]
+
+                                    for sec in PL_SECS:
+                                        grps = _is_sg.get(sec)
+                                        if not grps:
+                                            continue
+
+                                        for ci in range(1, tot_col + 1):
+                                            wpl.cell(pr, ci).font = _SEC_F
+                                            wpl.cell(pr, ci).fill = _SEC_BG
+                                        wpl.cell(pr, 1, sec)
+                                        pr += 1
+
+                                        grp_rows = []
+                                        for gn in grps:
+                                            wpl.cell(pr, 1, f"  {gn}").font = _MAPPL
+                                            wpl.cell(pr, 1).alignment = Alignment(indent=1)
+                                            grp_rows.append(pr)
+                                            for ci, mk in enumerate(month_keys, 2):
+                                                df = _is_date_formula(mk)
+                                                wpl.cell(pr, ci,
+                                                    f"=SUMIFS('IS GL Summary'!${is_amt_col_l}:${is_amt_col_l},"
+                                                    f"'IS GL Summary'!${is_grp_col_l}:${is_grp_col_l},\"{gn}\","
+                                                    f"'IS GL Summary'!${is_mon_col_l}:${is_mon_col_l},{df})"
+                                                ).number_format = NUM_FMT
+                                            sl = get_column_letter(2)
+                                            el = get_column_letter(1 + num_mo)
+                                            wpl.cell(pr, tot_col, f"=SUM({sl}{pr}:{el}{pr})").number_format = NUM_FMT
+                                            pr += 1
+
+                                        wpl.cell(pr, 1, f"Total {sec}").font = _MAPBD
+                                        for ci in range(2, tot_col + 1):
+                                            cl = get_column_letter(ci)
+                                            refs = "+".join(f"{cl}{r}" for r in grp_rows)
+                                            c = wpl.cell(pr, ci, f"={refs}")
+                                            c.number_format = NUM_FMT; c.font = _MAPBD
+                                            c.border = Border(top=_THIN)
+                                        rr[sec] = pr
+                                        pr += 2
+
+                                    def _calc(label, plus, minus, top_b=False, dbl_b=False):
+                                        nonlocal pr
+                                        wpl.cell(pr, 1, label).font = _MAPBD
+                                        for ci in range(2, tot_col + 1):
+                                            cl = get_column_letter(ci)
+                                            pp = [f"+{cl}{rr[k]}" for k in plus if k in rr]
+                                            mm = [f"-{cl}{rr[k]}" for k in minus if k in rr]
+                                            f = "=" + "".join(pp + mm) if (pp or mm) else "=0"
+                                            c = wpl.cell(pr, ci, f)
+                                            c.number_format = NUM_FMT; c.font = _MAPBD
+                                            if top_b or dbl_b:
+                                                c.border = Border(
+                                                    top=_THIN if top_b else None,
+                                                    bottom=_DBLE if dbl_b else None)
+                                        rv = pr; pr += 1; return rv
+
+                                    REV = ["Revenue"]
+                                    COS = ["COS", "Cost of Goods Sold"]
+                                    SM  = ["Sales & Marketing"]
+                                    OPX = ["Operating Expenses"]
+                                    OI  = ["Other Income"]
+                                    OE  = ["Other Expense", "Other"]
+
+                                    gp = _calc("Gross Profit", REV, COS)
+                                    rr["_GP"] = gp
+                                    if any(k in rr for k in SM):
+                                        cm = _calc("Contribution Margin", ["_GP"], SM)
+                                        rr["_CM"] = cm
+                                    else:
+                                        rr["_CM"] = gp
+                                    noi = _calc("Net Operating Income", ["_CM"], OPX)
+                                    rr["_NOI"] = noi
+                                    _calc("Net Income", ["_NOI"] + OI, OE, top_b=True, dbl_b=True)
+                                    pr += 1
+
+                                    wpl.column_dimensions["A"].width = 40
+                                    for ci in range(2, tot_col + 1):
+                                        wpl.column_dimensions[get_column_letter(ci)].width = 14
+                                    wpl.freeze_panes = "B4"
+
+                                # ── {Map Name} BS ──────────────────────────
+                                _, _bs_grp_l = _cl(hdr_bsg, grp_label)
+
+                                if bs_groups and _bs_grp_l:
+                                    _bs_tab = f"{map_name} BS"
+                                    if _bs_tab in wb.sheetnames:
+                                        del wb[_bs_tab]
+                                    wbs = wb.create_sheet(_bs_tab)
+                                    wbs.sheet_view.showGridLines = False
+
+                                    wbs.cell(1, 1, f"{map_name} \u2014 Balance Sheet").font = _MAPBD
+                                    wbs.cell(3, 1, "Account").font = HDR_FONT
+                                    wbs.cell(3, 1).fill = HDR_FILL
+                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                        c = wbs.cell(3, ci, bs_month_display.get(mk, mk))
+                                        c.font = HDR_FONT; c.fill = HDR_FILL
+                                        c.alignment = Alignment(horizontal="center")
+
+                                    br = 4
+                                    brr = {}
+
+                                    def _bs_sec_block(sec, sec_label_display=None):
+                                        nonlocal br
+                                        grps = bs_sec_groups.get(sec, [])
+                                        lbl  = sec_label_display or sec
+
+                                        for ci in range(1, num_bs_mo + 2):
+                                            wbs.cell(br, ci).font = _SEC_F
+                                            wbs.cell(br, ci).fill = _SEC_BG
+                                        wbs.cell(br, 1, lbl)
+                                        br += 1
+
+                                        grp_rows = []
+                                        for gn in grps:
+                                            wbs.cell(br, 1, f"  {gn}").font = _MAPPL
+                                            wbs.cell(br, 1).alignment = Alignment(indent=1)
+                                            grp_rows.append(br)
+                                            for ci, mk in enumerate(bs_month_keys, 2):
+                                                df = _bs_date_f(mk)
+                                                wbs.cell(br, ci,
+                                                    f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                                    f"'BS Balances'!${_bs_grp_l}:${_bs_grp_l},\"{gn}\","
+                                                    f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{df})"
+                                                ).number_format = NUM_FMT
+                                            br += 1
+
+                                        if not grp_rows:
+                                            wbs.cell(br, 1, "  (none)").font = _MAPPL
+                                            grp_rows.append(br)
+                                            for ci in range(2, num_bs_mo + 2):
+                                                wbs.cell(br, ci, 0).number_format = NUM_FMT
+                                            br += 1
+
+                                        return grp_rows
+
+                                    def _bs_total(label, row_lists, top_b=False, dbl_b=False):
+                                        nonlocal br
+                                        all_rows = [r for rl in row_lists for r in rl]
+                                        wbs.cell(br, 1, label).font = _MAPBD
+                                        for ci in range(2, num_bs_mo + 2):
+                                            cl = get_column_letter(ci)
+                                            refs = "+".join(f"{cl}{r}" for r in all_rows) if all_rows else "0"
+                                            c = wbs.cell(br, ci, f"={refs}")
+                                            c.number_format = NUM_FMT; c.font = _MAPBD
+                                            if top_b or dbl_b:
+                                                c.border = Border(
+                                                    top=_THIN if top_b else None,
+                                                    bottom=_DBLE if dbl_b else None)
+                                        rv = br; br += 1; return rv
+
+                                    def _bs_ref_total(label, ref_rows, top_b=False, dbl_b=False):
+                                        nonlocal br
+                                        wbs.cell(br, 1, label).font = _MAPBD
+                                        for ci in range(2, num_bs_mo + 2):
+                                            cl = get_column_letter(ci)
+                                            refs = "+".join(f"{cl}{r}" for r in ref_rows) if ref_rows else "0"
+                                            c = wbs.cell(br, ci, f"={refs}")
+                                            c.number_format = NUM_FMT; c.font = _MAPBD
+                                            if top_b or dbl_b:
+                                                c.border = Border(
+                                                    top=_THIN if top_b else None,
+                                                    bottom=_DBLE if dbl_b else None)
+                                        rv = br; br += 1; return rv
+
+                                    # Assets
+                                    ca_rows = _bs_sec_block("Current Assets")
+                                    fa_rows = _bs_sec_block("Fixed Assets")
+                                    oa_rows = _bs_sec_block("Other Assets")
+                                    ta_r = _bs_total("Total Assets", [ca_rows, fa_rows, oa_rows],
+                                                     top_b=True, dbl_b=True)
+                                    brr["TA"] = ta_r
+                                    br += 1
+
+                                    # Liabilities
+                                    cl_rows = _bs_sec_block("Current Liabilities")
+                                    ll_rows = _bs_sec_block("Long-term Liabilities")
+                                    tl_r = _bs_total("Total Liabilities", [cl_rows, ll_rows], top_b=True)
+                                    brr["TL"] = tl_r
+                                    br += 1
+
+                                    # Equity
+                                    eq_rows = _bs_sec_block("Equity")
+
+                                    ni_r = br
+                                    wbs.cell(br, 1, "  Net Income").font = Font(name="Arial", size=10, color="276221")
+                                    wbs.cell(br, 1).alignment = Alignment(indent=1)
+                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                        df = _bs_date_f(mk)
+                                        c = wbs.cell(br, ci,
+                                            f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
+                                            f"'BS Balances'!${bs_acct_col_l}:${bs_acct_col_l},\"Net Income\","
+                                            f"'BS Balances'!${bs_mon_col_l}:${bs_mon_col_l},{df})")
+                                        c.number_format = NUM_FMT
+                                        c.font = Font(name="Arial", size=10, color="276221")
+                                    br += 1
+
+                                    te_r = _bs_total("Total Equity", [eq_rows, [ni_r]], top_b=True)
+                                    brr["TE"] = te_r
+                                    br += 1
+
+                                    # Total Liabilities & Equity
+                                    _bs_ref_total("Total Liabilities & Equity",
+                                                  [brr["TL"], brr["TE"]], top_b=True, dbl_b=True)
+
+                                    wbs.column_dimensions["A"].width = 40
+                                    for ci in range(2, num_bs_mo + 2):
+                                        wbs.column_dimensions[get_column_letter(ci)].width = 14
+                                    wbs.freeze_panes = "B4"
+
+                            except Exception as _mpt_e:
+                                logger.warning(f"Mapped P&L/BS tabs failed for '{map_name}': {_mpt_e}")
+
                         # Column widths for Map Summary
                         ws_sum.column_dimensions["A"].width = 28
                         for ci in range(2, ws_sum.max_column + 1):
