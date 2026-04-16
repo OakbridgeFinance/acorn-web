@@ -1055,25 +1055,42 @@ async function mapsLoadList() {
   show('mapsListView');
   const realmId = _getRealmId();
 
+  // Ensure Supabase JWT is fresh before any API calls
+  await refreshTokenIfNeeded();
+
+  // Silently refresh QBO token so the COA fetch has a valid access token
+  console.log('[mapsLoadList] realmId:', realmId, 'guard:', _mapsQboRefreshedRealm);
   if (realmId && _mapsQboRefreshedRealm !== realmId) {
     try {
+      console.log('[mapsLoadList] refreshing QBO token...');
       const rr = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
         method: 'POST',
         headers: authHeaders(),
       });
-      if (rr.ok) _mapsQboRefreshedRealm = realmId;
-    } catch (e) { /* proceed — token may still be valid */ }
+      console.log('[mapsLoadList] QBO refresh status:', rr.status);
+      if (rr.ok) {
+        _mapsQboRefreshedRealm = realmId;
+      } else {
+        console.warn('[mapsLoadList] QBO refresh failed:', rr.status, await rr.text().catch(() => ''));
+      }
+    } catch (e) {
+      console.warn('[mapsLoadList] QBO refresh error:', e);
+    }
+  } else {
+    console.log('[mapsLoadList] QBO token already refreshed for this realm, skipping');
   }
 
   try {
+    console.log('[mapsLoadList] fetching mappings + COA...');
     const [mapsResp, acctResp] = await Promise.all([
       fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() }).then(r => r.json()),
       fetch(API + '/api/mapping/coa/' + realmId, { headers: authHeaders() }).then(r => r.json()),
     ]);
     mapsState.maps = Array.isArray(mapsResp.account_maps) ? mapsResp.account_maps : [];
     mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
+    console.log('[mapsLoadList] loaded', mapsState.maps.length, 'maps,', mapsState.allAccounts.length, 'accounts');
   } catch (e) {
-    console.error('Maps load error:', e);
+    console.error('[mapsLoadList] fetch error:', e);
     mapsState.maps = [];
   }
   hide('mapsLoading');
