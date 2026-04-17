@@ -265,6 +265,11 @@
       </div>
 
       <div class="maps-editor hidden" id="mapsEditor">
+        <div style="margin-bottom:8px;">
+          <a href="#" onclick="event.preventDefault(); mapsCloseEditor();"
+             style="font-size:13px;color:#337E8D;text-decoration:none;"
+             onmouseover="this.style.color='#255b63'" onmouseout="this.style.color='#337E8D'">&larr; Back to Maps</a>
+        </div>
         <div class="maps-editor-toolbar">
           <button class="btn-outline btn-sm" onclick="mapsCloseEditor()">Cancel</button>
           <div class="maps-editor-name">
@@ -1161,8 +1166,30 @@ function mapsEdit(idx) {
   mapsOpenEditor();
 }
 
-function mapsOpenEditor() {
+async function mapsOpenEditor() {
   hide('mapsListView'); show('mapsEditor');
+
+  if (!mapsState.allAccounts.length) {
+    const realmId = _getRealmId();
+    console.log('[mapsOpenEditor] allAccounts empty, retrying for realm:', realmId);
+    if (realmId) {
+      await refreshTokenIfNeeded();
+      _mapsQboRefreshedRealm = null;
+      try {
+        const rr = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
+          method: 'POST', headers: authHeaders(),
+        });
+        console.log('[mapsOpenEditor] QBO refresh status:', rr.status);
+        if (rr.ok) _mapsQboRefreshedRealm = realmId;
+      } catch (e) { console.warn('[mapsOpenEditor] QBO refresh error:', e); }
+      try {
+        const acctResp = await fetch(API + '/api/mapping/coa/' + realmId, { headers: authHeaders() }).then(r => r.json());
+        mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
+        console.log('[mapsOpenEditor] loaded', mapsState.allAccounts.length, 'accounts on retry');
+      } catch (e) { console.error('[mapsOpenEditor] COA fetch error:', e); }
+    }
+  }
+
   const e = mapsState.editing;
   if ($('mapsEditorName')) $('mapsEditorName').value = e.map_name || '';
   const now = new Date();

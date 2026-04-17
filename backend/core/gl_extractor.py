@@ -2328,6 +2328,17 @@ def generate_lite(
     )
     if pct_fn: pct_fn(95)
 
+    for _ws in wb.worksheets:
+        for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
+            for _c in _row:
+                if _c.font and (_c.font.name != _ARIAL or _c.font.size != _FONT_SZ):
+                    _c.font = _Font(
+                        name=_ARIAL, size=_FONT_SZ,
+                        bold=_c.font.bold, italic=_c.font.italic,
+                        color=_c.font.color, underline=_c.font.underline,
+                        strikethrough=_c.font.strikethrough,
+                    )
+
     try:
         wb.save(save_path)
     except PermissionError:

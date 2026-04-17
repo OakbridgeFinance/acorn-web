@@ -890,6 +890,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     def _bs_sec_block(sec, sec_label_display=None):
                                         nonlocal br
                                         grps = bs_sec_groups.get(sec, [])
+                                        if not grps:
+                                            sec_low = sec.lower()
+                                            for k, v in bs_sec_groups.items():
+                                                if k.lower() == sec_low:
+                                                    grps = v
+                                                    break
                                         lbl  = sec_label_display or sec
 
                                         # Section header — gray fill, bold black
@@ -1083,6 +1089,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
                         ws_sum.freeze_panes = "B2"
 
+                        for _ws in wb.worksheets:
+                            for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
+                                for _c in _row:
+                                    if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
+                                        _c.font = Font(
+                                            name="Arial", size=10,
+                                            bold=_c.font.bold, italic=_c.font.italic,
+                                            color=_c.font.color, underline=_c.font.underline,
+                                            strikethrough=_c.font.strikethrough,
+                                        )
+
                         wb.save(file_path)
                         progress_fn("  Mapping columns and Map Summary written.")
 
@@ -1143,6 +1160,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     except: pass
                                 ws.column_dimensions[cl].width = min(mx + 4, 60)
                             ws.freeze_panes = "A2"
+
+                    for _ws in wb_p.worksheets:
+                        for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
+                            for _c in _row:
+                                if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
+                                    _c.font = Font(
+                                        name="Arial", size=10,
+                                        bold=_c.font.bold, italic=_c.font.italic,
+                                        color=_c.font.color, underline=_c.font.underline,
+                                        strikethrough=_c.font.strikethrough,
+                                    )
 
                     wb_p.save(file_path)
                     progress_fn("  Portal data tabs added.")
