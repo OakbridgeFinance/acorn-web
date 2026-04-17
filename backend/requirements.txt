@@ -5,5 +5,7 @@ stripe
 httpx
 pandas
 openpyxl
+Pillow
 python-dotenv
 python-multipart
+tzdata
