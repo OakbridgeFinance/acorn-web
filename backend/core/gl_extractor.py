@@ -540,7 +540,7 @@ def _prepare_is_gl_rows(
     if dimension == "none":
         header = [
             "Date", "Month", "Transaction Type", "Num", "Account Name", "Account Number",
-            "Account Type", "Account Subtype", "Class", "Location",
+            "Account Type", "Account Subtype",
             "Customer/Vendor", "Memo/Description", "Split Account",
             "Amount", "Running Balance",
         ]
@@ -552,7 +552,6 @@ def _prepare_is_gl_rows(
                 r["Date"], eom, r["Transaction Type"], r.get("Num", ""),
                 r["Account Name"], r.get("Account Number", ""),
                 r["Account Type"], r.get("Account Subtype", ""),
-                str(r.get("Class", "") or ""), str(r.get("Location", "") or ""),
                 r.get("Customer/Vendor", ""), r.get("Memo/Description", ""),
                 r.get("Split Account", ""),
                 r["Amount"], r["Running Balance"],

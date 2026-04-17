@@ -925,7 +925,7 @@ async function saveReportAs(fileUrl, suggestedName) {
     const btn = $('saveAsBtn');
     if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     if (e.name !== 'AbortError') {
-      alert('Could not save file: ' + e.message);
+      showSaveError('Save failed \u2014 the file may be open in another application. Close it and try again.');
     }
   }
 }
@@ -952,13 +952,28 @@ async function saveSameFile(fileUrl, filename) {
     showSaveSuccess('File saved as ' + filename + '.');
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
-    alert('Could not save file: ' + e.message);
+    showSaveError('Save failed \u2014 the file may be open in another application. Close it and try again.');
   }
 }
 
 function showSaveSuccess(msg) {
   const el = $('saveSuccessMsg');
-  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  if (el) {
+    el.textContent = msg;
+    el.style.color = 'var(--success-text)';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 8000);
+  }
+}
+
+function showSaveError(msg) {
+  const el = $('saveSuccessMsg');
+  if (el) {
+    el.textContent = msg;
+    el.style.color = '#CC0000';
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 10000);
+  }
 }
 
 // ── UI helpers ──────────────────────────────────────────────────────────────
