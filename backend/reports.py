@@ -882,7 +882,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wpl.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
                                     for ci in range(_DC + 1, tot_col + 1):
                                         wpl.column_dimensions[get_column_letter(ci)].width = 14
-                                    wpl.freeze_panes = "C6"
+                                    wpl.freeze_panes = "A6"
 
                                 # ── {Map Name} BS ──────────────────────────
                                 _, _bs_grp_l = _cl(hdr_bsg, grp_label)
@@ -1113,7 +1113,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wbs.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
                                     for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                         wbs.column_dimensions[get_column_letter(ci)].width = 14
-                                    wbs.freeze_panes = "C6"
+                                    wbs.freeze_panes = "A6"
 
                             except Exception as _mpt_e:
                                 import traceback
@@ -1129,7 +1129,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ws_sum.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
                         for ci in range(_DC + 1, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
-                        ws_sum.freeze_panes = "C6"
+                        ws_sum.freeze_panes = "A6"
 
                         for _ws in wb.worksheets:
                             for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
@@ -1196,11 +1196,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         c.number_format = "M/D/YYYY"
                                     elif isinstance(v, (int, float)):
                                         c.number_format = '#,##0.00_);(#,##0.00);"-"??;@'
-                            # Autofit column widths
+                            # Autofit column widths (skip buffer col A)
                             for col_cells in ws.columns:
+                                col_idx = col_cells[0].column
+                                if col_idx < 2:
+                                    continue
                                 mx = 0
-                                cl = _gclp(col_cells[0].column)
+                                cl = _gclp(col_idx)
                                 for cell in col_cells:
+                                    if cell.row < 5:
+                                        continue
                                     try:
                                         cl2 = len(str(cell.value)) if cell.value is not None else 0
                                         if cl2 > mx: mx = cl2
@@ -1327,78 +1332,75 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 ws_s = wb_fin.create_sheet("Summary", 0)
                 ws_s.sheet_view.showGridLines = False
                 ws_s.sheet_properties.tabColor = "C97D60"
+                ws_s.column_dimensions["A"].width = 0.63
 
                 _SF  = _Ff(name="Arial", size=10)
                 _SFB = _Ff(name="Arial", size=10, bold=True)
                 _SFG = _Ff(name="Arial", size=10, color="5A6B6D")
                 _SFI = _Ff(name="Arial", size=10, italic=True, color="5A6B6D")
                 _SHF = _Ff(name="Arial", size=10, bold=True, color="FFFFFF")
-                _SHB = _PFf("solid", fgColor="07393C")
+                _SHB = _PFf("solid", fgColor="337E8D")
                 _SLK = _Ff(name="Arial", size=10, color="0563C1", underline="single")
-                _SGR = _Ff(name="Arial", size=10, color="276221")
-                _SRD = _Ff(name="Arial", size=10, color="CC0000")
                 _NUM = '#,##0.00_);(#,##0.00);"-"??;@'
 
                 def _sec_bar(r, text):
-                    for ci in range(1, 5):
+                    for ci in range(2, 6):
                         ws_s.cell(r, ci).fill = _SHB
-                    ws_s.cell(r, 1, text).font = _SHF
+                    ws_s.cell(r, 2, text).font = _SHF
 
-                # Row 1: company name + logo at C1
+                # Row 1: company name (A1 overflows) + logo at D1
                 ws_s.cell(1, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
-                _logo_path = _Pf(__file__).parent / "assets" / "Logo-F23-transparent.png"
-                if _logo_path.exists():
+                import os as _os_logo
+                _logo_path = _os_logo.path.join(_os_logo.path.dirname(__file__), "assets", "Logo-F23-transparent.png")
+                if _os_logo.path.exists(_logo_path):
                     try:
                         from openpyxl.drawing.image import Image as _XlImg
-                        img = _XlImg(str(_logo_path))
+                        img = _XlImg(_logo_path)
                         _ratio = img.height / max(img.width, 1)
                         img.width = 200; img.height = int(200 * _ratio)
-                        ws_s.add_image(img, "C1")
+                        ws_s.add_image(img, "D1")
                     except Exception:
                         pass
 
                 ws_s.cell(2, 1, "Summary").font = _SF
                 ws_s.cell(3, 1, "Acorn by Oakbridge Finance").font = _SFI
-                # Row 4 blank
 
                 # Row 5: Report Summary bar
                 _sec_bar(5, "Report Summary")
                 from datetime import datetime as _dtf
-                ws_s.cell(6, 1, f"Report Period: {start_date} \u2014 {end_date}").font = _SFG
-                ws_s.cell(7, 1, f"Generated: {_dtf.now().strftime('%B %d, %Y')}").font = _SFG
-                # Row 8 blank
+                ws_s.cell(6, 2, f"Report Period: {start_date} \u2014 {end_date}").font = _SFG
+                _now = _dtf.now()
+                try:
+                    _time_s = _now.strftime("%-I:%M %p")
+                except ValueError:
+                    _time_s = _now.strftime("%I:%M %p").lstrip("0")
+                ws_s.cell(7, 2, f"Generated: {_now.strftime('%B %d, %Y')} at {_time_s}").font = _SFG
 
                 # Row 9: Validation Summary bar
                 _sec_bar(9, "Validation Summary")
 
-                # Row 10: QBO Reports header
-                ws_s.cell(10, 1, "QBO Reports").font = _SFB
+                ws_s.cell(10, 2, "QBO Reports").font = _SFB
 
-                # Rows 11-15: GL Summary Validation reference
-                # Validation tab summary is at rows 6-10 (SUMMARY_START=6), col D (offset+2)
-                _val_ref_col = "D"  # GL Value column on validation tab (shifted)
+                _val_ref_col = "D"
                 if "GL Summary Validation" in wb_fin.sheetnames:
-                    ws_s.cell(11, 1, "Overall Result").font = _SF
-                    ws_s.cell(11, 3, f"='GL Summary Validation'!{_val_ref_col}6").font = _SF
-                    ws_s.cell(12, 1, "Total Accounts Checked").font = _SF
-                    ws_s.cell(12, 3, f"='GL Summary Validation'!{_val_ref_col}7").font = _SF
-                    ws_s.cell(13, 1, "Matched").font = _SF
-                    ws_s.cell(13, 3, f"='GL Summary Validation'!{_val_ref_col}8").font = _SF
-                    ws_s.cell(14, 1, "Differences Found").font = _SF
-                    ws_s.cell(14, 3, f"='GL Summary Validation'!{_val_ref_col}9").font = _SF
-                    ws_s.cell(15, 1, "Missing from GL").font = _SF
-                    ws_s.cell(15, 3, f"='GL Summary Validation'!{_val_ref_col}10").font = _SF
-                # Row 16 blank
+                    ws_s.cell(11, 2, "Overall Result").font = _SF
+                    ws_s.cell(11, 4, f"='GL Summary Validation'!{_val_ref_col}6").font = _SF
+                    ws_s.cell(12, 2, "Total Accounts Checked").font = _SF
+                    ws_s.cell(12, 4, f"='GL Summary Validation'!{_val_ref_col}7").font = _SF
+                    ws_s.cell(13, 2, "Matched").font = _SF
+                    ws_s.cell(13, 4, f"='GL Summary Validation'!{_val_ref_col}8").font = _SF
+                    ws_s.cell(14, 2, "Differences Found").font = _SF
+                    ws_s.cell(14, 4, f"='GL Summary Validation'!{_val_ref_col}9").font = _SF
+                    ws_s.cell(15, 2, "Missing from GL").font = _SF
+                    ws_s.cell(15, 4, f"='GL Summary Validation'!{_val_ref_col}10").font = _SF
 
-                # Per-map validation (rows 17+)
                 _sr = 17
                 for mn in _map_names:
                     pl_tn = f"{mn} P&L"
                     bs_tn = f"{mn} BS"
-                    ws_s.cell(_sr, 1, mn).font = _SFB
+                    ws_s.cell(_sr, 2, mn).font = _SFB
                     _sr += 1
 
-                    # Scan Mapped P&L/BS for "Difference" label rows (col B after buffer)
                     _pl_diff_r = None
                     _bs_diff_rs = {}
                     if pl_tn in wb_fin.sheetnames:
@@ -1431,16 +1433,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ("Assets = Liabilities + Equity", _bs_diff_rs.get("Balance Check"), bs_tn),
                     ]
                     for chk_lbl, chk_r, chk_tab in _checks:
-                        ws_s.cell(_sr, 1, chk_lbl).font = _SF
+                        ws_s.cell(_sr, 2, chk_lbl).font = _SF
                         if chk_r:
-                            ws_s.cell(_sr, 3, f"='{chk_tab}'!C{chk_r}").number_format = _NUM
-                            ws_s.cell(_sr, 4,
-                                f'=IF(OR(C{_sr}=0,C{_sr}="-"),"Passed","\u26a0 Needs Review")')
+                            ws_s.cell(_sr, 4, f"='{chk_tab}'!C{chk_r}").number_format = _NUM
+                            ws_s.cell(_sr, 5,
+                                f'=IF(ABS(D{_sr})<0.01,"Passed","\u26a0 Needs Review")')
                         else:
-                            ws_s.cell(_sr, 3, 0).number_format = _NUM
-                            ws_s.cell(_sr, 4, "Passed")
+                            ws_s.cell(_sr, 4, 0).number_format = _NUM
+                            ws_s.cell(_sr, 5, "Passed")
                         _sr += 1
-                    _sr += 1  # blank row between maps
+                    _sr += 1
 
                 # Reports Included section
                 _sec_bar(_sr, "Reports Included")
@@ -1461,20 +1463,20 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 for si, (sl, st) in enumerate(zip(_sec_labels, _sec_lists)):
                     if not st:
                         continue
-                    ws_s.cell(_sr, 1, sl).font = _SFB
+                    ws_s.cell(_sr, 2, sl).font = _SFB
                     _sr += 1
                     for tn in st:
                         dn = _display_names.get(tn, tn)
-                        c = ws_s.cell(_sr, 1, f"\u2192 {dn}")
+                        c = ws_s.cell(_sr, 2, f"\u2192 {dn}")
                         c.font = _SLK
                         c.hyperlink = f"#{tn}!A1"
                         _sr += 1
                     _sr += 1
 
-                ws_s.column_dimensions["A"].width = 40
-                ws_s.column_dimensions["B"].width = 15
+                ws_s.column_dimensions["B"].width = 40
                 ws_s.column_dimensions["C"].width = 15
-                ws_s.column_dimensions["D"].width = 20
+                ws_s.column_dimensions["D"].width = 15
+                ws_s.column_dimensions["E"].width = 20
 
                 # ── Reorder tabs ──
                 # Build final order, then move each sheet to end in sequence

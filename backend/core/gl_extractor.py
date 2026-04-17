@@ -1161,7 +1161,7 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
     for ci in range(_DC + 1, len(headers) + _DC):
         ws.column_dimensions[get_column_letter(ci)].width = 16
 
-    ws.freeze_panes = "B6"
+    ws.freeze_panes = "A6"
 
 
 # ── Validation (live formula version) ────────────────────────────────────────
@@ -1388,7 +1388,7 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
                 pass
         ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
 
-    ws.freeze_panes = "B6"
+    ws.freeze_panes = "A6"
 
 
 def _write_validation_sheet(
@@ -1710,7 +1710,7 @@ def _write_validation_sheet(
     for ci, w in enumerate(widths, _DC):
         ws.column_dimensions[get_column_letter(ci)].width = w
 
-    ws.freeze_panes = "B6"
+    ws.freeze_panes = "A6"
     progress_fn(f"  Validation tab written: {len(is_accounts)} IS accounts, {len(bs_accounts)} BS accounts")
 
 
@@ -1856,7 +1856,7 @@ def _write_report_sheet(
     for ci in range(_DC + 1, len(rows[0]) + _DC):
         ws.column_dimensions[get_column_letter(ci)].width = 14
 
-    ws.freeze_panes = "C6"
+    ws.freeze_panes = "A6"
 
 
 def _write_dimension_sheet(
