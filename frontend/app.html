@@ -888,9 +888,12 @@ async function saveReportAs(fileUrl, suggestedName) {
     const btn = $('saveAsBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
+    console.log('[saveReportAs] fetching:', fileUrl);
     const response = await fetch(fileUrl);
-    if (!response.ok) throw new Error('Could not fetch report file');
+    console.log('[saveReportAs] response status:', response.status, response.statusText);
+    if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
+    console.log('[saveReportAs] blob size:', blob.size, 'type:', blob.type);
 
     if (window.showSaveFilePicker) {
       const handle = await window.showSaveFilePicker({
@@ -922,10 +925,11 @@ async function saveReportAs(fileUrl, suggestedName) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     }
   } catch (e) {
+    console.error('[saveReportAs] error:', e);
     const btn = $('saveAsBtn');
     if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     if (e.name !== 'AbortError') {
-      showSaveError('Save failed \u2014 the file may be open in another application. Close it and try again.');
+      showSaveError('Save failed: ' + e.message);
     }
   }
 }
@@ -935,9 +939,12 @@ async function saveSameFile(fileUrl, filename) {
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
+    console.log('[saveSameFile] fetching:', fileUrl);
     const response = await fetch(fileUrl);
-    if (!response.ok) throw new Error('Could not fetch report file');
+    console.log('[saveSameFile] response status:', response.status, response.statusText);
+    if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
+    console.log('[saveSameFile] blob size:', blob.size);
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -951,8 +958,9 @@ async function saveSameFile(fileUrl, filename) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
     showSaveSuccess('File saved as ' + filename + '.');
   } catch (e) {
+    console.error('[saveSameFile] error:', e);
     if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
-    showSaveError('Save failed \u2014 the file may be open in another application. Close it and try again.');
+    showSaveError('Save failed: ' + e.message);
   }
 }
 

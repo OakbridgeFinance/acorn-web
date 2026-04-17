@@ -573,9 +573,12 @@ details[open] .tab-details-summary::before { content: '▼ '; }
   word-break: break-word;
 }
 .status-banner.success {
-  background: var(--success-bg);
-  color: var(--success-text);
-  border-color: var(--success-border);
+  background: rgba(41, 161, 175, 0.08);
+  color: #07393C;
+  border-color: rgba(41, 161, 175, 0.2);
+  border-radius: 12px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
 }
 .status-banner.error {
   background: var(--error-bg);

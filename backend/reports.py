@@ -1538,7 +1538,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             url_result = supabase.storage.from_("reports").create_signed_url(
                 storage_path, 3600
             )
-            file_url = url_result["signedURL"]
+            file_url = (url_result.get("signedURL")
+                        or url_result.get("signedUrl")
+                        or url_result.get("signed_url", ""))
+            logger.info(f"Signed URL keys: {list(url_result.keys())}, url length: {len(file_url)}")
             update_job(job_id, status="complete", file_url=file_url)
 
     except Exception as e:
