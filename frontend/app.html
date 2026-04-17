@@ -859,10 +859,10 @@ function pollJob(jobId) {
 
             if (lastFilename) {
               $('lastSavedName').textContent = lastFilename;
-              $('saveSameBtn').onclick = function() { saveSameFile(job.file_url, lastFilename); };
+              $('saveSameBtn').onclick = function() { saveSameFile(_currentJobId, lastFilename); };
             }
 
-            $('saveAsBtn').onclick = function() { saveReportAs(job.file_url, suggestedName); };
+            $('saveAsBtn').onclick = function() { saveReportAs(_currentJobId, suggestedName); };
           }
         }
       } else if (job.status === 'failed') {
@@ -883,13 +883,14 @@ function rememberLastFilename(name) {
   localStorage.setItem('acorn_last_filename_' + state.realmId, name);
 }
 
-async function saveReportAs(fileUrl, suggestedName) {
+async function saveReportAs(jobId, suggestedName) {
   try {
     const btn = $('saveAsBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
-    console.log('[saveReportAs] fetching:', fileUrl);
-    const response = await fetch(fileUrl);
+    const downloadUrl = API + '/api/reports/download/' + jobId;
+    console.log('[saveReportAs] fetching:', downloadUrl);
+    const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveReportAs] response status:', response.status, response.statusText);
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
@@ -934,13 +935,14 @@ async function saveReportAs(fileUrl, suggestedName) {
   }
 }
 
-async function saveSameFile(fileUrl, filename) {
+async function saveSameFile(jobId, filename) {
   const btn = $('saveSameBtn');
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
-    console.log('[saveSameFile] fetching:', fileUrl);
-    const response = await fetch(fileUrl);
+    const downloadUrl = API + '/api/reports/download/' + jobId;
+    console.log('[saveSameFile] fetching:', downloadUrl);
+    const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveSameFile] response status:', response.status, response.statusText);
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();

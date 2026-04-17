@@ -1604,6 +1604,38 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
     return {"cancelled": True}
 
 
+@router.get("/download/{job_id}")
+def download_report(job_id: str, user=Depends(get_current_user)):
+    """Download a completed report file through the backend."""
+    from fastapi.responses import Response
+    job = get_job(job_id)
+    if not job or job["user_id"] != str(user.id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") != "complete":
+        raise HTTPException(status_code=400, detail="Report not ready")
+
+    supabase = get_supabase()
+    user_id = str(user.id)
+    try:
+        files = supabase.storage.from_("reports").list(f"{user_id}/{job_id}")
+        if not files:
+            raise HTTPException(status_code=404, detail="Report file not found in storage")
+        file_name = files[0]["name"]
+        storage_path = f"{user_id}/{job_id}/{file_name}"
+        data = supabase.storage.from_("reports").download(storage_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        raise HTTPException(status_code=500, detail="Could not retrieve report file")
+
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
 @router.get("/history")
 def job_history(user=Depends(get_current_user)):
     """Get recent jobs for the current user."""
