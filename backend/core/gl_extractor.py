@@ -1108,11 +1108,11 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
     elif tab_name == "AP Aging" and headers:
         headers[0] = "Vendor"
 
-    for ci, val in enumerate(headers, 1):
+    for ci, val in enumerate(headers, _DC):
         c = ws.cell(row=5, column=ci, value=val)
         c.font = HDR_FONT
         c.fill = HDR_FILL
-        c.alignment = _AL(horizontal="center" if ci > 1 else "left")
+        c.alignment = _AL(horizontal="center" if ci > _DC else "left")
 
     data_rows = rows[1:]
     last_idx = len(data_rows) - 1
@@ -1133,8 +1133,8 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
         is_group_header = (not is_total) and (label_lower in group_header_targets)
         is_detail = (not is_total) and (not is_group_header)
 
-        for ci in range(1, len(row) + 1):
-            val = row[ci - 1] if (ci - 1) < len(row) else None
+        for ci in range(_DC, len(row) + _DC):
+            val = row[ci - _DC] if (ci - _DC) < len(row) else None
             c = ws.cell(row=excel_row, column=ci, value=val)
 
             if is_total or is_group_header:
@@ -1142,7 +1142,7 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
             else:
                 c.font = PLAIN_FONT
 
-            if ci == 1:
+            if ci == _DC:
                 if is_detail:
                     c.alignment = _AL(horizontal="left", indent=1)
                 else:
@@ -1157,11 +1157,11 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
             elif is_total:
                 c.border = _Bdr(top=THIN)
 
-    ws.column_dimensions["A"].width = 45
-    for ci in range(2, len(headers) + 1):
+    ws.column_dimensions["B"].width = 45
+    for ci in range(_DC + 1, len(headers) + _DC):
         ws.column_dimensions[get_column_letter(ci)].width = 16
 
-    ws.freeze_panes = "A6"
+    ws.freeze_panes = "B6"
 
 
 # ── Validation (live formula version) ────────────────────────────────────────
@@ -1327,9 +1327,11 @@ THIN       = _Sd(style="thin")
 DOUBLE     = _Sd(style="double")
 
 _GH_ROWS = 4  # global header occupies rows 1-4; column headers at row 5, data at row 6
+_DC = 2        # data column start (column B); column A is a narrow buffer
 
 
 def _write_global_header(ws, company_name, report_name, as_of_date=None):
+    ws.column_dimensions["A"].width = 0.63
     ws.cell(1, 1, company_name).font = _font(bold=True)
     ws.cell(2, 1, report_name).font = _font()
     if as_of_date:
@@ -1351,28 +1353,31 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
     header = rows[0]
     acct_num_cols = {ci for ci, h in enumerate(header) if h in _ACCT_NUM_COLS}
 
-    for ci, col_name in enumerate(header, 1):
+    for ci, col_name in enumerate(header, _DC):
         c = ws.cell(row=5, column=ci, value=col_name)
         c.font      = HDR_FONT
         c.fill      = HDR_FILL
-        c.alignment = _AL(horizontal="center" if ci > 1 else "left",
+        c.alignment = _AL(horizontal="center" if ci > _DC else "left",
                           vertical="center")
 
     for ri, row in enumerate(rows[1:], 6):
-        for ci, val in enumerate(row, 1):
+        for ci, val in enumerate(row, _DC):
             val = _to_date(val)
             c = ws.cell(row=ri, column=ci, value=val)
             c.font = PLAIN_FONT
             if isinstance(val, date):
                 c.number_format = "M/D/YYYY"
             elif isinstance(val, (int, float)):
-                c.number_format = "0" if (ci-1) in acct_num_cols else _ACCT_FMT
+                c.number_format = "0" if (ci - _DC) in acct_num_cols else _ACCT_FMT
                 c.alignment     = _AL(horizontal="right")
 
-    # Autofit column widths (skip global header rows)
+    # Autofit column widths (skip buffer col A and header rows)
     for col_cells in ws.columns:
+        col_idx = col_cells[0].column
+        if col_idx < _DC:
+            continue
         max_len = 0
-        col_letter = _gcl_ws(col_cells[0].column)
+        col_letter = _gcl_ws(col_idx)
         for cell in col_cells:
             if cell.row < 5:
                 continue
@@ -1383,7 +1388,7 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
                 pass
         ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
 
-    ws.freeze_panes = "A6"
+    ws.freeze_panes = "B6"
 
 
 def _write_validation_sheet(
@@ -1435,15 +1440,15 @@ def _write_validation_sheet(
     def _vl(hdrs, name):
         for i, h in enumerate(hdrs):
             if str(h or "").strip() == name:
-                return _gcl_val(i + 1)
+                return _gcl_val(i + _DC)
         return None
 
-    IS_ACCT_COL = _vl(_is_sum_hdr, "Account Name") or "B"
-    IS_AMT_COL  = _vl(_is_sum_hdr, "Amount") or "E"
+    IS_ACCT_COL = _vl(_is_sum_hdr, "Account Name") or "C"
+    IS_AMT_COL  = _vl(_is_sum_hdr, "Amount") or "F"
     IS_DIM_COL  = None
 
-    BS_ACCT_COL = _vl(_bs_sum_hdr, "Account Name") or "B"
-    BS_BAL_COL  = _vl(_bs_sum_hdr, "Amount") or "D"
+    BS_ACCT_COL = _vl(_bs_sum_hdr, "Account Name") or "C"
+    BS_BAL_COL  = _vl(_bs_sum_hdr, "Amount") or "E"
 
     # Parse dates for Excel DATE() formula
     from datetime import datetime as _dt
@@ -1482,7 +1487,7 @@ def _write_validation_sheet(
         # First pass: count data rows per bare name and build full-name lookup
         # pl_rows data rows have row_type as last element
         num_header_cols = len(pl_rows[0])
-        for ri, row in enumerate(pl_rows[1:], 2):
+        for ri, row in enumerate(pl_rows[1:], 6):
             if not row:
                 continue
             full     = str(row[0] or "").strip()
@@ -1496,7 +1501,7 @@ def _write_validation_sheet(
             if is_data:
                 pl_bare_counts[bare] = pl_bare_counts.get(bare, 0) + 1
         # Second pass: build bare lookup only for unique data-row bare names
-        for ri, row in enumerate(pl_rows[1:], 2):
+        for ri, row in enumerate(pl_rows[1:], 6):
             if not row:
                 continue
             full     = str(row[0] or "").strip()
@@ -1515,14 +1520,14 @@ def _write_validation_sheet(
         bs_num_cols = len(bs_report_rows[0]) - 1 if bs_report_rows[0] else 0
         num_bs_cols = bs_num_cols
         from openpyxl.utils import get_column_letter as _gcl_v
-        bs_last_col = _gcl_v(num_bs_cols + 1) if num_bs_cols > 0 else "B"
-        for ri, row in enumerate(bs_report_rows[1:], 2):
+        bs_last_col = _gcl_v(num_bs_cols + _DC) if num_bs_cols > 0 else "C"
+        for ri, row in enumerate(bs_report_rows[1:], 6):
             if row:
                 full = str(row[0] or "").strip()
                 bare = _bare_lower(full)
                 bs_row_lookup[full.lower()] = ri
                 bs_bare_counts[bare] = bs_bare_counts.get(bare, 0) + 1
-        for ri, row in enumerate(bs_report_rows[1:], 2):
+        for ri, row in enumerate(bs_report_rows[1:], 6):
             if row:
                 full = str(row[0] or "").strip()
                 bare = _bare_lower(full)
@@ -1531,13 +1536,12 @@ def _write_validation_sheet(
     else:
         bs_last_col = "B"
 
-    # P&L last column letter (sum all months = total period activity)
     pl_num_cols = len(pl_rows[0]) - 1 if pl_rows and pl_rows[0] else 0
     from openpyxl.utils import get_column_letter as _gcl_v2
-    pl_last_col = _gcl_v2(pl_num_cols + 1) if pl_num_cols > 0 else "B"
+    pl_last_col = _gcl_v2(pl_num_cols + _DC) if pl_num_cols > 0 else "C"
 
     headers = ["Account", "Statement", "GL Value (Live)", "QBO Report Value", "Difference", "Status", "Notes"]
-    for ci, h in enumerate(headers, 1):
+    for ci, h in enumerate(headers, _DC):
         c = ws.cell(row=5, column=ci, value=h)
         c.font = BOLD_WHITE
         c.fill = HEADER_BG
@@ -1545,15 +1549,15 @@ def _write_validation_sheet(
 
     SUMMARY_START = 6
     DETAIL_START  = 12
-    ws.cell(row=DETAIL_START - 1, column=1, value="ACCOUNT DETAIL").font = BOLD
+    ws.cell(row=DETAIL_START - 1, column=_DC, value="ACCOUNT DETAIL").font = BOLD
 
     current_row = DETAIL_START
 
     # IS section header
-    c = ws.cell(row=current_row, column=1, value="INCOME STATEMENT ACCOUNTS")
+    c = ws.cell(row=current_row, column=_DC, value="INCOME STATEMENT ACCOUNTS")
     c.font = BOLD
     c.fill = SECTION_BG
-    for ci in range(1, 8):
+    for ci in range(_DC, _DC + 7):
         ws.cell(row=current_row, column=ci).fill = SECTION_BG
     current_row += 1
 
@@ -1571,43 +1575,49 @@ def _write_validation_sheet(
             acct_num = val.get("acct_num", "") if isinstance(val, dict) else ""
             is_accounts.append((acct, amount, acct_num))
 
+    _VBL = get_column_letter(_DC)       # B — Account
+    _VCL = get_column_letter(_DC + 1)   # C — Statement
+    _VDL = get_column_letter(_DC + 2)   # D — GL Value
+    _VEL = get_column_letter(_DC + 3)   # E — QBO Report Value
+    _VFL = get_column_letter(_DC + 4)   # F — Difference
+    _VGL = get_column_letter(_DC + 5)   # G — Status
+
+    # IS month/date column on the source tab is now column B (was A)
+    _SRC_DATE_COL = get_column_letter(_DC)  # B
+
     for acct, qbo_val, acct_num in is_accounts:
         if abs(qbo_val) < 0.01:
             continue
         rn = current_row
-        ws.cell(row=rn, column=1, value=acct)
-        ws.cell(row=rn, column=2, value="IS")
-        # GL Value: SUMIFS matching account name in col A of Validation against IS GL Detail
-        # Always use A{rn} cell reference — never hardcode account names or numbers
+        ws.cell(row=rn, column=_DC, value=acct)
+        ws.cell(row=rn, column=_DC + 1, value="IS")
         if date_start_formula and date_end_formula:
             _is_formula = (
                 f'=SUMIFS({is_ref}!{IS_AMT_COL}:{IS_AMT_COL},'
-                f'{is_ref}!{IS_ACCT_COL}:{IS_ACCT_COL},A{rn},'
-                f'{is_ref}!A:A,">="&{date_start_formula},'
-                f'{is_ref}!A:A,"<="&{date_end_formula})')
+                f'{is_ref}!{IS_ACCT_COL}:{IS_ACCT_COL},{_VBL}{rn},'
+                f'{is_ref}!{_SRC_DATE_COL}:{_SRC_DATE_COL},">="&{date_start_formula},'
+                f'{is_ref}!{_SRC_DATE_COL}:{_SRC_DATE_COL},"<="&{date_end_formula})')
         else:
             _is_formula = (
                 f'=SUMIF({is_ref}!{IS_ACCT_COL}:{IS_ACCT_COL},'
-                f'A{rn},{is_ref}!{IS_AMT_COL}:{IS_AMT_COL})')
-        ws.cell(row=rn, column=3, value=_is_formula).number_format = NUM_FMT
-        # QBO Report Value: XLOOKUP on account name against P&L Total column
-        # P&L account names are stored without leading spaces (indent via cell formatting)
-        qbo_formula = f"=IFERROR(_xlfn.XLOOKUP(A{rn},'P&L'!A:A,'P&L'!{pl_last_col}:{pl_last_col},0),0)"
-        c = ws.cell(row=rn, column=4, value=qbo_formula)
+                f'{_VBL}{rn},{is_ref}!{IS_AMT_COL}:{IS_AMT_COL})')
+        ws.cell(row=rn, column=_DC + 2, value=_is_formula).number_format = NUM_FMT
+        qbo_formula = f"=IFERROR(_xlfn.XLOOKUP({_VBL}{rn},'P&L'!{_VBL}:{_VBL},'P&L'!{pl_last_col}:{pl_last_col},0),0)"
+        c = ws.cell(row=rn, column=_DC + 3, value=qbo_formula)
         c.number_format = NUM_FMT
-        ws.cell(row=rn, column=5, value=f"=C{rn}-D{rn}").number_format = NUM_FMT
-        ws.cell(row=rn, column=6,
-                value=f'=IF(ABS(E{rn})<{TOLERANCE},"MATCH",IF(C{rn}=0,"MISSING","DIFF"))')
-        ws.cell(row=rn, column=7, value="")
+        ws.cell(row=rn, column=_DC + 4, value=f"={_VDL}{rn}-{_VEL}{rn}").number_format = NUM_FMT
+        ws.cell(row=rn, column=_DC + 5,
+                value=f'=IF(ABS({_VFL}{rn})<{TOLERANCE},"MATCH",IF({_VDL}{rn}=0,"MISSING","DIFF"))')
+        ws.cell(row=rn, column=_DC + 6, value="")
         current_row += 1
 
     current_row += 1
 
     # BS section header
-    c = ws.cell(row=current_row, column=1, value="BALANCE SHEET ACCOUNTS")
+    c = ws.cell(row=current_row, column=_DC, value="BALANCE SHEET ACCOUNTS")
     c.font = BOLD
     c.fill = SECTION_BG
-    for ci in range(1, 8):
+    for ci in range(_DC, _DC + 7):
         ws.cell(row=current_row, column=ci).fill = SECTION_BG
     current_row += 1
 
@@ -1620,82 +1630,87 @@ def _write_validation_sheet(
             acct_num = val.get("acct_num", "") if isinstance(val, dict) else ""
             bs_accounts.append((acct, amount, acct_num))
 
+    # BS Balances columns are now shifted: B=Account, C=Type, D=Subtype, E=Group, F=Month, G=Balance
+    _BS_ACCT = get_column_letter(_DC)       # B
+    _BS_MON  = get_column_letter(_DC + 4)   # F
+    _BS_BAL  = get_column_letter(_DC + 5)   # G
+
     for acct, qbo_val, acct_num in bs_accounts:
         if abs(qbo_val) < 0.01:
             continue
         rn = current_row
-        ws.cell(row=rn, column=1, value=acct)
-        ws.cell(row=rn, column=2, value="BS")
-        # BS Balances: A=Account, B=Account Type, C=Subtype, D=Account Group, E=Month, F=Ending Balance
-        # Exact name match — no wildcard
+        ws.cell(row=rn, column=_DC, value=acct)
+        ws.cell(row=rn, column=_DC + 1, value="BS")
         if date_end_formula:
             _bs_formula = (
-                f"=IFERROR(SUMIFS('BS Balances'!F:F,"
-                f"'BS Balances'!A:A,A{rn},"
-                f"'BS Balances'!E:E,{date_end_formula}),0)")
+                f"=IFERROR(SUMIFS('BS Balances'!{_BS_BAL}:{_BS_BAL},"
+                f"'BS Balances'!{_BS_ACCT}:{_BS_ACCT},{_VBL}{rn},"
+                f"'BS Balances'!{_BS_MON}:{_BS_MON},{date_end_formula}),0)")
         else:
             _bs_formula = (
-                f"=IFERROR(SUMIF('BS Balances'!A:A,A{rn},'BS Balances'!F:F),0)")
-        ws.cell(row=rn, column=3, value=_bs_formula).number_format = NUM_FMT
-        # QBO Report Value: XLOOKUP on account name against Balance Sheet last month column
-        qbo_formula = f"=IFERROR(_xlfn.XLOOKUP(A{rn},'Balance Sheet'!A:A,'Balance Sheet'!{bs_last_col}:{bs_last_col},0),0)"
-        c = ws.cell(row=rn, column=4, value=qbo_formula)
+                f"=IFERROR(SUMIF('BS Balances'!{_BS_ACCT}:{_BS_ACCT},{_VBL}{rn},'BS Balances'!{_BS_BAL}:{_BS_BAL}),0)")
+        ws.cell(row=rn, column=_DC + 2, value=_bs_formula).number_format = NUM_FMT
+        qbo_formula = f"=IFERROR(_xlfn.XLOOKUP({_VBL}{rn},'Balance Sheet'!{_VBL}:{_VBL},'Balance Sheet'!{bs_last_col}:{bs_last_col},0),0)"
+        c = ws.cell(row=rn, column=_DC + 3, value=qbo_formula)
         c.number_format = NUM_FMT
-        ws.cell(row=rn, column=5, value=f"=C{rn}-D{rn}").number_format = NUM_FMT
-        ws.cell(row=rn, column=6,
-                value=f'=IF(ABS(E{rn})<{TOLERANCE},"MATCH",IF(AND(C{rn}=0,B{rn}="BS"),"NO ACTIVITY","DIFF"))')
-        ws.cell(row=rn, column=7, value="")
+        ws.cell(row=rn, column=_DC + 4, value=f"={_VDL}{rn}-{_VEL}{rn}").number_format = NUM_FMT
+        ws.cell(row=rn, column=_DC + 5,
+                value=f'=IF(ABS({_VFL}{rn})<{TOLERANCE},"MATCH",IF(AND({_VDL}{rn}=0,{_VCL}{rn}="BS"),"NO ACTIVITY","DIFF"))')
+        ws.cell(row=rn, column=_DC + 6, value="")
         current_row += 1
 
     last_data_row = current_row - 1
 
     # Summary formulas (rows 2-6)
+    _VG = get_column_letter(_DC + 5)   # Status column (G)
+    _VB = get_column_letter(_DC)       # Account column (B)
     summary_data = [
         ("Overall Result",
-         f'=IF(COUNTIF(F{DETAIL_START}:F{last_data_row},"DIFF")+COUNTIF(F{DETAIL_START}:F{last_data_row},"MISSING")=0,"\u2713 PASS","\u2717 FAIL")', ""),
+         f'=IF(COUNTIF({_VG}{DETAIL_START}:{_VG}{last_data_row},"DIFF")+COUNTIF({_VG}{DETAIL_START}:{_VG}{last_data_row},"MISSING")=0,"\u2713 PASS","\u2717 FAIL")', ""),
         ("Total Accounts Checked",
-         f'=COUNTA(A{DETAIL_START}:A{last_data_row})-COUNTIF(A{DETAIL_START}:A{last_data_row},"INCOME STATEMENT ACCOUNTS")-COUNTIF(A{DETAIL_START}:A{last_data_row},"BALANCE SHEET ACCOUNTS")', ""),
-        ("Matched", f'=COUNTIF(F{DETAIL_START}:F{last_data_row},"MATCH")', ""),
-        ("Differences Found", f'=COUNTIF(F{DETAIL_START}:F{last_data_row},"DIFF")', "Red rows below"),
-        ("Missing from GL", f'=COUNTIF(F{DETAIL_START}:F{last_data_row},"MISSING")', "Yellow rows below"),
+         f'=COUNTA({_VB}{DETAIL_START}:{_VB}{last_data_row})-COUNTIF({_VB}{DETAIL_START}:{_VB}{last_data_row},"INCOME STATEMENT ACCOUNTS")-COUNTIF({_VB}{DETAIL_START}:{_VB}{last_data_row},"BALANCE SHEET ACCOUNTS")', ""),
+        ("Matched", f'=COUNTIF({_VG}{DETAIL_START}:{_VG}{last_data_row},"MATCH")', ""),
+        ("Differences Found", f'=COUNTIF({_VG}{DETAIL_START}:{_VG}{last_data_row},"DIFF")', "Red rows below"),
+        ("Missing from GL", f'=COUNTIF({_VG}{DETAIL_START}:{_VG}{last_data_row},"MISSING")', "Yellow rows below"),
     ]
     for i, (label, formula, note) in enumerate(summary_data):
         r = SUMMARY_START + i
-        ws.cell(row=r, column=1, value=label).font = BOLD
-        ws.cell(row=r, column=3, value=formula)
+        ws.cell(row=r, column=_DC, value=label).font = BOLD
+        ws.cell(row=r, column=_DC + 2, value=formula)
         if note:
-            ws.cell(row=r, column=7, value=note)
+            ws.cell(row=r, column=_DC + 6, value=note)
 
     # Conditional formatting
+    _VD = get_column_letter(_DC + 2)   # GL Value column (D)
     ws.conditional_formatting.add(
-        f"C{SUMMARY_START}",
+        f"{_VD}{SUMMARY_START}",
         CellIsRule(operator="equal", formula=['"\u2713 PASS"'],
                    fill=PatternFill("solid", fgColor="C6EFCE"), font=_font(bold=True)))
     ws.conditional_formatting.add(
-        f"C{SUMMARY_START}",
+        f"{_VD}{SUMMARY_START}",
         CellIsRule(operator="equal", formula=['"\u2717 FAIL"'],
                    fill=PatternFill("solid", fgColor="FFC7CE"), font=_font(bold=True)))
 
-    detail_range = f"A{DETAIL_START}:G{last_data_row}"
-    # FormulaRule: $F locks column, row is relative — Excel extends down each row
+    _VH = get_column_letter(_DC + 6)   # Notes column (H)
+    detail_range = f"{_VB}{DETAIL_START}:{_VH}{last_data_row}"
     ws.conditional_formatting.add(detail_range,
-        FormulaRule(formula=[f'$F{DETAIL_START}="MATCH"'],
+        FormulaRule(formula=[f'${_VG}{DETAIL_START}="MATCH"'],
                     fill=GREEN, font=_font(color="276221")))
     ws.conditional_formatting.add(detail_range,
-        FormulaRule(formula=[f'$F{DETAIL_START}="DIFF"'],
+        FormulaRule(formula=[f'${_VG}{DETAIL_START}="DIFF"'],
                     fill=RED, font=_font(color="9C0006")))
     ws.conditional_formatting.add(detail_range,
-        FormulaRule(formula=[f'$F{DETAIL_START}="MISSING"'],
+        FormulaRule(formula=[f'${_VG}{DETAIL_START}="MISSING"'],
                     fill=YELLOW, font=_font(color="9C5700")))
     GREY = PatternFill("solid", fgColor="F2F2F2")
     ws.conditional_formatting.add(detail_range,
-        FormulaRule(formula=[f'$F{DETAIL_START}="NO ACTIVITY"'], fill=GREY))
+        FormulaRule(formula=[f'${_VG}{DETAIL_START}="NO ACTIVITY"'], fill=GREY))
 
     widths = [48, 12, 18, 20, 14, 12, 35]
-    for ci, w in enumerate(widths, 1):
+    for ci, w in enumerate(widths, _DC):
         ws.column_dimensions[get_column_letter(ci)].width = w
 
-    ws.freeze_panes = "A6"
+    ws.freeze_panes = "B6"
     progress_fn(f"  Validation tab written: {len(is_accounts)} IS accounts, {len(bs_accounts)} BS accounts")
 
 
@@ -1726,11 +1741,11 @@ def _write_report_sheet(
 
     # Column header row at row 5
     header = rows[0]
-    for ci, val in enumerate(header, 1):
+    for ci, val in enumerate(header, _DC):
         c = ws.cell(row=5, column=ci, value=val)
         c.font      = HDR_FONT
         c.fill      = HDR_FILL
-        c.alignment = Alignment(horizontal="center" if ci > 1 else "left")
+        c.alignment = Alignment(horizontal="center" if ci > _DC else "left")
 
     GRANDTOTAL_KEYWORDS = {
         "net income", "gross profit", "net operating income",
@@ -1759,26 +1774,26 @@ def _write_report_sheet(
                              and not any(c.isdigit() for c in bare[:5]))
 
             if is_header:
-                c = ws.cell(row=ri, column=1, value=label.strip())
+                c = ws.cell(row=ri, column=_DC, value=label.strip())
                 c.font = BOLD_FONT
                 c.fill = GRAY_FILL
-                for ci in range(2, len(row) + 1):
+                for ci in range(_DC + 1, len(row) + _DC):
                     c = ws.cell(row=ri, column=ci, value=None)
                     c.font = PLAIN_FONT
                     c.fill = GRAY_FILL
                 continue
 
-            for ci in range(1, len(row) + 1):
-                val = row[ci - 1] if (ci - 1) < len(row) else None
+            for ci in range(_DC, len(row) + _DC):
+                val = row[ci - _DC] if (ci - _DC) < len(row) else None
                 if val is not None and not isinstance(val, (str, int, float, date)):
                     val = str(val)
-                if ci == 1 and isinstance(val, str):
+                if ci == _DC and isinstance(val, str):
                     val = val.strip()
 
                 c = ws.cell(row=ri, column=ci, value=val)
                 c.font = BOLD_FONT if (is_grandtotal or is_subtotal or is_header) else PLAIN_FONT
 
-                if ci == 1:
+                if ci == _DC:
                     c.alignment = Alignment(horizontal="left", indent=indent_lv)
                 elif isinstance(val, (int, float)):
                     c.number_format = _ACCT_FMT
@@ -1805,24 +1820,23 @@ def _write_report_sheet(
         VAL_BOLD = _font(bold=True)
 
         separator_row  = len(rows) + _GH_ROWS + 2
-        ws.cell(row=separator_row, column=1, value="")
+        ws.cell(row=separator_row, column=_DC, value="")
         val_header_row = separator_row + 1
-        ws.cell(row=val_header_row, column=1, value="\u2500\u2500 GL CROSS-CHECK \u2500\u2500").font = VAL_BOLD
+        ws.cell(row=val_header_row, column=_DC, value="\u2500\u2500 GL CROSS-CHECK \u2500\u2500").font = VAL_BOLD
 
         for vi, vrow in enumerate(validation_rows):
             vri = val_header_row + 1 + vi
             is_diff_row = str(vrow[0] if vrow else "").startswith("Difference")
-            for ci, val in enumerate(vrow, 1):
+            for ci, val in enumerate(vrow, _DC):
                 c = ws.cell(row=vri, column=ci, value=val)
                 c.fill = VAL_BG
-                if ci == 1:
+                if ci == _DC:
                     c.font = _font(bold=True) if vi == 0 else PLAIN_FONT
-                if ci > 1 and isinstance(val, str) and val.startswith("="):
+                if ci > _DC and isinstance(val, str) and val.startswith("="):
                     c.number_format = "#,##0.00"
-            # Add conditional formatting to Difference rows — red if non-zero
             if is_diff_row and len(vrow) > 1:
                 from openpyxl.formatting.rule import CellIsRule
-                diff_range = f"B{vri}:{get_column_letter(len(vrow))}{vri}"
+                diff_range = f"{get_column_letter(_DC + 1)}{vri}:{get_column_letter(len(vrow) + _DC - 1)}{vri}"
                 ws.conditional_formatting.add(
                     diff_range,
                     CellIsRule(
@@ -1833,16 +1847,16 @@ def _write_report_sheet(
                     )
                 )
 
-    max_a = 0
+    max_b = 0
     for r in range(5, ws.max_row + 1):
-        v = ws.cell(r, 1).value
+        v = ws.cell(r, _DC).value
         if v is not None:
-            max_a = max(max_a, len(str(v)))
-    ws.column_dimensions["A"].width = min(max(max_a + 4, 30), 50)
-    for ci in range(2, len(rows[0]) + 1):
+            max_b = max(max_b, len(str(v)))
+    ws.column_dimensions[get_column_letter(_DC)].width = min(max(max_b + 4, 30), 50)
+    for ci in range(_DC + 1, len(rows[0]) + _DC):
         ws.column_dimensions[get_column_letter(ci)].width = 14
 
-    ws.freeze_panes = "B6"
+    ws.freeze_panes = "C6"
 
 
 def _write_dimension_sheet(
@@ -2134,7 +2148,7 @@ def generate_lite(
         from openpyxl.utils import get_column_letter as _gcl
         for i, h in enumerate(headers):
             if str(h or "").strip() == col_name:
-                return _gcl(i + 1)
+                return _gcl(i + _DC)
         return None
 
     is_sum_hdr = is_summary_rows[0] if is_summary_rows else []
@@ -2158,7 +2172,7 @@ def generate_lite(
 
         if net_income_row_idx:
             pl_ni_row = ["Net Income \u2014 P&L Report"] + [
-                f"={_gcl_pl(ci+2)}{net_income_row_idx}"
+                f"={_gcl_pl(ci + _DC + 1)}{net_income_row_idx}"
                 for ci in range(num_months_val)
             ]
 
@@ -2197,7 +2211,7 @@ def generate_lite(
             R1_pl = len(pl_report_rows) + 4 + _GH_ROWS
             R2_pl = len(pl_report_rows) + 5 + _GH_ROWS
             diff_row_pl = ["Difference (should be zero)"] + [
-                f"={_gcl_pl(ci+2)}{R1_pl}-{_gcl_pl(ci+2)}{R2_pl}"
+                f"={_gcl_pl(ci + _DC + 1)}{R1_pl}-{_gcl_pl(ci + _DC + 1)}{R2_pl}"
                 for ci in range(num_months_val)
             ]
 
@@ -2249,7 +2263,7 @@ def generate_lite(
 
         # Total Assets rows
         ta_report_row = ["Total Assets — Balance Sheet Report"] + (
-            [f"={_gcl_bs(ci+2)}{total_assets_idx}" for ci in range(num_bs_months_val)]
+            [f"={_gcl_bs(ci + _DC + 1)}{total_assets_idx}" for ci in range(num_bs_months_val)]
             if total_assets_idx else [""] * num_bs_months_val
         )
         ta_gl_row = ["Total Assets — BS Balances"]
@@ -2266,7 +2280,7 @@ def generate_lite(
 
         # Total Liabilities rows
         tl_report_row = ["Total Liabilities — Balance Sheet Report"] + (
-            [f"={_gcl_bs(ci+2)}{total_liab_idx}" for ci in range(num_bs_months_val)]
+            [f"={_gcl_bs(ci + _DC + 1)}{total_liab_idx}" for ci in range(num_bs_months_val)]
             if total_liab_idx else [""] * num_bs_months_val
         )
         tl_gl_row = ["Total Liabilities — BS Balances"]
@@ -2283,7 +2297,7 @@ def generate_lite(
 
         # Total Equity rows
         te_report_row = ["Total Equity — Balance Sheet Report"] + (
-            [f"={_gcl_bs(ci+2)}{total_equity_idx}" for ci in range(num_bs_months_val)]
+            [f"={_gcl_bs(ci + _DC + 1)}{total_equity_idx}" for ci in range(num_bs_months_val)]
             if total_equity_idx else [""] * num_bs_months_val
         )
         te_gl_row = ["Total Equity — BS Balances"]
@@ -2307,15 +2321,15 @@ def generate_lite(
         R3 = BASE + 4;  R4 = BASE + 5   # liabilities
         R5 = BASE + 8;  R6 = BASE + 9   # equity
         ta_diff_row = ["Difference — Assets (should be zero)"] + [
-            f"={_gcl_bs(ci+2)}{R1}-{_gcl_bs(ci+2)}{R2}"
+            f"={_gcl_bs(ci + _DC + 1)}{R1}-{_gcl_bs(ci + _DC + 1)}{R2}"
             for ci in range(num_bs_months_val)
         ]
         tl_diff_row = ["Difference — Liabilities (should be zero)"] + [
-            f"={_gcl_bs(ci+2)}{R3}-{_gcl_bs(ci+2)}{R4}"
+            f"={_gcl_bs(ci + _DC + 1)}{R3}-{_gcl_bs(ci + _DC + 1)}{R4}"
             for ci in range(num_bs_months_val)
         ]
         te_diff_row = ["Difference — Equity (should be zero)"] + [
-            f"={_gcl_bs(ci+2)}{R5}-{_gcl_bs(ci+2)}{R6}"
+            f"={_gcl_bs(ci + _DC + 1)}{R5}-{_gcl_bs(ci + _DC + 1)}{R6}"
             for ci in range(num_bs_months_val)
         ]
 

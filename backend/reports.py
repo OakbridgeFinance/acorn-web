@@ -219,6 +219,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                         _GL_HDR_R = 5   # column headers now at row 5
                         _GL_DATA_R = 6  # data starts at row 6
+                        _DC = 2         # data columns start at B (buffer col A)
 
                         # ── Append to IS GL Detail, BS GL Detail, BS Balances ──
                         for tab in ("IS GL Summary", "BS GL Summary", "IS GL Detail", "BS GL Detail", "BS Balances"):
@@ -324,7 +325,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         month_display[mk] = mk
                             month_keys = sorted(month_keys)
                             num_mo     = len(month_keys)
-                            tot_col    = num_mo + 2  # months start at col 2
+                            tot_col    = num_mo + _DC + 1  # months start at col 3
 
                             # IS groups from mapping definition, sorted by section
                             IS_ORDER = ["Revenue", "COS", "Cost of Goods Sold",
@@ -344,14 +345,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                            if g[1] in IS_ORDER else 99)
 
                             # Title
-                            ws_sum.cell(cr, 1,
+                            ws_sum.cell(cr, _DC,
                                 f"{map_name} \u2014 Income Statement").font = BOLD_LG
                             cr += 1
 
                             # Header — col A blank, then month labels, then Total
-                            ws_sum.cell(cr, 1, "").font = HDR_FONT
-                            ws_sum.cell(cr, 1).fill = HDR_FILL
-                            for ci, mk in enumerate(month_keys, 2):
+                            ws_sum.cell(cr, _DC, "").font = HDR_FONT
+                            ws_sum.cell(cr, _DC).fill = HDR_FILL
+                            for ci, mk in enumerate(month_keys, _DC + 1):
                                 c = ws_sum.cell(cr, ci, month_display.get(mk, mk))
                                 c.font = HDR_FONT
                                 c.fill = HDR_FILL
@@ -374,10 +375,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             data_rows = []  # [(row_number, section_name)]
                             for sec in section_order:
-                                ws_sum.cell(cr, 1, sec)
+                                ws_sum.cell(cr, _DC, sec)
                                 data_rows.append((cr, sec))
 
-                                for ci, mk in enumerate(month_keys, 2):
+                                for ci, mk in enumerate(month_keys, _DC + 1):
                                     mv = month_dates.get(mk)
                                     if mv and hasattr(mv, 'year'):
                                         date_f = f"DATE({mv.year},{mv.month},{mv.day})"
@@ -395,15 +396,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     )
                                     ws_sum.cell(cr, ci, formula).number_format = NUM_FMT
 
-                                sl = get_column_letter(2)
+                                sl = get_column_letter(_DC + 1)
                                 el = get_column_letter(1 + num_mo)
                                 ws_sum.cell(cr, tot_col, f"=SUM({sl}{cr}:{el}{cr})").number_format = NUM_FMT
                                 cr += 1
 
                             # Net Income — income sections minus expense sections
                             ni_row = cr
-                            ws_sum.cell(cr, 1, "Net Income").font = BOLD
-                            for ci in range(2, tot_col + 1):
+                            ws_sum.cell(cr, _DC, "Net Income").font = BOLD
+                            for ci in range(_DC + 1, tot_col + 1):
                                 cl       = get_column_letter(ci)
                                 inc_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in INCOME_SECS)
                                 exp_refs = "+".join(f"{cl}{r}" for r, s in data_rows if s in EXPENSE_SECS)
@@ -420,16 +421,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # QBO Net Income from P&L
                             qbo_ni_row = cr
-                            ws_sum.cell(cr, 1,
+                            ws_sum.cell(cr, _DC,
                                 "Net Income \u2014 QBO P&L").font = Font(name="Arial", size=10, italic=True)
                             if "P&L" in wb.sheetnames:
                                 ws_pl  = wb["P&L"]
                                 pl_hdr = [ws_pl.cell(_GL_HDR_R, c).value
                                           for c in range(1, ws_pl.max_column + 1)]
                                 for pri in range(_GL_DATA_R, ws_pl.max_row + 1):
-                                    lbl = str(ws_pl.cell(pri, 1).value or "").strip().lower()
+                                    lbl = str(ws_pl.cell(pri, _DC).value or "").strip().lower()
                                     if lbl in ("net income", "net earnings"):
-                                        for ci, mk in enumerate(month_keys, 2):
+                                        for ci, mk in enumerate(month_keys, _DC + 1):
                                             ml_s = month_display.get(mk, mk)
                                             for pci, ph in enumerate(pl_hdr):
                                                 if str(ph or "").strip() == ml_s:
@@ -451,8 +452,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # Difference row — black font, conditional fill only
                             diff_row = cr
-                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
-                            for ci in range(2, tot_col + 1):
+                            ws_sum.cell(cr, _DC, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
+                            for ci in range(_DC + 1, tot_col + 1):
                                 cl = get_column_letter(ci)
                                 c = ws_sum.cell(cr, ci, f"={cl}{ni_row}-{cl}{qbo_ni_row}")
                                 c.number_format = NUM_FMT
@@ -521,14 +522,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                            if g[1] in BS_ORDER else 99)
 
                             # Title
-                            ws_sum.cell(cr, 1,
+                            ws_sum.cell(cr, _DC,
                                 f"{map_name} \u2014 Balance Sheet").font = BOLD_LG
                             cr += 1
 
                             # BS header — col A blank, then month labels
-                            ws_sum.cell(cr, 1, "").font = HDR_FONT
-                            ws_sum.cell(cr, 1).fill = HDR_FILL
-                            for ci, mk in enumerate(bs_month_keys, 2):
+                            ws_sum.cell(cr, _DC, "").font = HDR_FONT
+                            ws_sum.cell(cr, _DC).fill = HDR_FILL
+                            for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                 c = ws_sum.cell(cr, ci, bs_month_display.get(mk, mk))
                                 c.font = HDR_FONT
                                 c.fill = HDR_FILL
@@ -560,9 +561,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 nonlocal cr
                                 sec_data_rows = []
                                 for sec in sections_list:
-                                    ws_sum.cell(cr, 1, sec)
+                                    ws_sum.cell(cr, _DC, sec)
                                     sec_data_rows.append(cr)
-                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                    for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                         date_f = _bs_date_f(mk)
                                         formula = (
                                             f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
@@ -576,8 +577,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ni_row = None
                                 if include_net_income:
                                     ni_row = cr
-                                    ws_sum.cell(cr, 1, "Net Income").font = LINK_FONT
-                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                    ws_sum.cell(cr, _DC, "Net Income").font = LINK_FONT
+                                    for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                         date_f = _bs_date_f(mk)
                                         formula = (
                                             f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
@@ -591,11 +592,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                 # Total row — include Net Income for Equity
                                 total_row = cr
-                                ws_sum.cell(cr, 1, total_label).font = BOLD
+                                ws_sum.cell(cr, _DC, total_label).font = BOLD
                                 sum_rows = list(sec_data_rows)
                                 if ni_row is not None:
                                     sum_rows.append(ni_row)
-                                for ci in range(2, num_bs_mo + 2):
+                                for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                     cl = get_column_letter(ci)
                                     refs = "+".join(f"{cl}{r}" for r in sum_rows)
                                     ws_sum.cell(cr, ci, f"={refs}").number_format = NUM_FMT
@@ -604,19 +605,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                 # Balance Sheet report reference row — cross-check against QBO Balance Sheet tab
                                 bs_ref_row = cr
-                                ws_sum.cell(cr, 1, f"{total_label} \u2014 QBO Balance Sheet").font = LINK_FONT
+                                ws_sum.cell(cr, _DC, f"{total_label} \u2014 QBO Balance Sheet").font = LINK_FONT
                                 if "Balance Sheet" in wb.sheetnames:
                                     ws_bs_rpt = wb["Balance Sheet"]
                                     bs_rpt_hdr = [ws_bs_rpt.cell(_GL_HDR_R, c).value
                                                   for c in range(1, ws_bs_rpt.max_column + 1)]
                                     bs_match_row = None
                                     for bri in range(_GL_DATA_R, ws_bs_rpt.max_row + 1):
-                                        lbl = str(ws_bs_rpt.cell(bri, 1).value or "").strip()
+                                        lbl = str(ws_bs_rpt.cell(bri, _DC).value or "").strip()
                                         if lbl.lower() == total_label.lower():
                                             bs_match_row = bri
                                             break
                                     if bs_match_row:
-                                        for ci, mk in enumerate(bs_month_keys, 2):
+                                        for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                             ml_s = bs_month_display.get(mk, mk)
                                             for pci, ph in enumerate(bs_rpt_hdr):
                                                 if str(ph or "").strip() == ml_s:
@@ -629,8 +630,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                 # Difference row — black font, conditional fill only
                                 diff_row = cr
-                                ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
-                                for ci in range(2, num_bs_mo + 2):
+                                ws_sum.cell(cr, _DC, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
+                                for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                     cl = get_column_letter(ci)
                                     c = ws_sum.cell(cr, ci, f"={cl}{total_row}-{cl}{bs_ref_row}")
                                     c.number_format = NUM_FMT
@@ -649,31 +650,31 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # Total Liabilities & Equity
                             tle_row = cr
-                            ws_sum.cell(cr, 1, "Total Liabilities & Equity").font = BOLD
-                            for ci in range(2, num_bs_mo + 2):
+                            ws_sum.cell(cr, _DC, "Total Liabilities & Equity").font = BOLD
+                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                 cl = get_column_letter(ci)
                                 ws_sum.cell(cr, ci, f"={cl}{tl_row}+{cl}{te_row}").number_format = NUM_FMT
                                 ws_sum.cell(cr, ci).font = BOLD
                             cr += 2
 
                             # Balance check — Total Assets vs Total Liabilities & Equity
-                            ws_sum.cell(cr, 1, "Total Assets").font = BOLD
-                            for ci in range(2, num_bs_mo + 2):
+                            ws_sum.cell(cr, _DC, "Total Assets").font = BOLD
+                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                 cl = get_column_letter(ci)
                                 ws_sum.cell(cr, ci, f"={cl}{ta_row}").number_format = NUM_FMT
                                 ws_sum.cell(cr, ci).font = BOLD
                             cr += 1
 
-                            ws_sum.cell(cr, 1, "Total Liabilities & Equity").font = BOLD
-                            for ci in range(2, num_bs_mo + 2):
+                            ws_sum.cell(cr, _DC, "Total Liabilities & Equity").font = BOLD
+                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                 cl = get_column_letter(ci)
                                 ws_sum.cell(cr, ci, f"={cl}{tle_row}").number_format = NUM_FMT
                                 ws_sum.cell(cr, ci).font = BOLD
                             cr += 1
 
                             bal_diff_row = cr
-                            ws_sum.cell(cr, 1, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
-                            for ci in range(2, num_bs_mo + 2):
+                            ws_sum.cell(cr, _DC, "Difference (should be zero)").font = Font(name="Arial", size=10, bold=True)
+                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                 cl = get_column_letter(ci)
                                 c = ws_sum.cell(cr, ci, f"={cl}{ta_row}-{cl}{tle_row}")
                                 c.number_format = NUM_FMT
@@ -730,10 +731,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wpl.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
                                     wpl.cell(2, 1, f"{map_name} \u2014 Income Statement").font = Font(name="Arial", size=10)
 
-                                    wpl.cell(5, 1, "Account").font = HDR_FONT
+                                    wpl.cell(5, _DC, "Account").font = HDR_FONT
                                     wpl.cell(5, 1).fill = HDR_FILL
                                     wpl.cell(5, 1).alignment = Alignment(horizontal="left")
-                                    for ci, mk in enumerate(month_keys, 2):
+                                    for ci, mk in enumerate(month_keys, _DC + 1):
                                         c = wpl.cell(5, ci, month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
                                         c.alignment = Alignment(horizontal="center")
@@ -754,33 +755,33 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             continue
 
                                         # Section header — gray fill, bold black (matches existing P&L)
-                                        c = wpl.cell(pr, 1, sec)
+                                        c = wpl.cell(pr, _DC, sec)
                                         c.font = _MAPBD; c.fill = _GRAY
-                                        for ci in range(2, tot_col + 1):
+                                        for ci in range(_DC + 1, tot_col + 1):
                                             wpl.cell(pr, ci).font = _MAPPL
                                             wpl.cell(pr, ci).fill = _GRAY
                                         pr += 1
 
                                         grp_rows = []
                                         for gn in grps:
-                                            wpl.cell(pr, 1, gn).font = _MAPPL
-                                            wpl.cell(pr, 1).alignment = Alignment(indent=1)
+                                            wpl.cell(pr, _DC, gn).font = _MAPPL
+                                            wpl.cell(pr, _DC).alignment = Alignment(indent=1)
                                             grp_rows.append(pr)
-                                            for ci, mk in enumerate(month_keys, 2):
+                                            for ci, mk in enumerate(month_keys, _DC + 1):
                                                 df = _is_date_formula(mk)
                                                 c = wpl.cell(pr, ci,
                                                     f"=SUMIFS('IS GL Summary'!${is_amt_col_l}:${is_amt_col_l},"
                                                     f"'IS GL Summary'!${is_grp_col_l}:${is_grp_col_l},\"{gn}\","
                                                     f"'IS GL Summary'!${is_mon_col_l}:${is_mon_col_l},{df})")
                                                 c.number_format = NUM_FMT
-                                            sl = get_column_letter(2)
+                                            sl = get_column_letter(_DC + 1)
                                             el = get_column_letter(1 + num_mo)
                                             wpl.cell(pr, tot_col, f"=SUM({sl}{pr}:{el}{pr})").number_format = NUM_FMT
                                             pr += 1
 
                                         # Section subtotal — bold, thin top border (matches existing)
-                                        wpl.cell(pr, 1, f"Total {sec}").font = _MAPBD
-                                        for ci in range(2, tot_col + 1):
+                                        wpl.cell(pr, _DC, f"Total {sec}").font = _MAPBD
+                                        for ci in range(_DC + 1, tot_col + 1):
                                             cl = get_column_letter(ci)
                                             refs = "+".join(f"{cl}{r}" for r in grp_rows)
                                             c = wpl.cell(pr, ci, f"={refs}")
@@ -792,13 +793,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     # Calculated rows — bold; Net Income gets thin-top + double-bottom
                                     def _calc(label, plus, minus, top_b=False, dbl_b=False):
                                         nonlocal pr
-                                        lc = wpl.cell(pr, 1, label)
+                                        lc = wpl.cell(pr, _DC, label)
                                         lc.font = _MAPBD
                                         if top_b or dbl_b:
                                             lc.border = Border(
                                                 top=_THIN if top_b else None,
                                                 bottom=_DBLE if dbl_b else None)
-                                        for ci in range(2, tot_col + 1):
+                                        for ci in range(_DC + 1, tot_col + 1):
                                             cl = get_column_letter(ci)
                                             pp = [f"+{cl}{rr[k]}" for k in plus if k in rr]
                                             mm = [f"-{cl}{rr[k]}" for k in minus if k in rr]
@@ -833,16 +834,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     # ── P&L validation: Net Income cross-check ──
                                     pr += 1
                                     qbo_ni_r = pr
-                                    wpl.cell(pr, 1, "Net Income \u2014 QBO P&L").font = Font(
+                                    wpl.cell(pr, _DC, "Net Income \u2014 QBO P&L").font = Font(
                                         name="Arial", size=10, italic=True, color="276221")
                                     if "P&L" in wb.sheetnames:
                                         ws_pl_src = wb["P&L"]
                                         pl_src_hdr = [ws_pl_src.cell(_GL_HDR_R, c).value
                                                       for c in range(1, ws_pl_src.max_column + 1)]
                                         for pri in range(_GL_DATA_R, ws_pl_src.max_row + 1):
-                                            lbl = str(ws_pl_src.cell(pri, 1).value or "").strip().lower()
+                                            lbl = str(ws_pl_src.cell(pri, _DC).value or "").strip().lower()
                                             if lbl in ("net income", "net earnings"):
-                                                for ci, mk in enumerate(month_keys, 2):
+                                                for ci, mk in enumerate(month_keys, _DC + 1):
                                                     ml_s = month_display.get(mk, mk)
                                                     for pci, ph in enumerate(pl_src_hdr):
                                                         if str(ph or "").strip() == ml_s:
@@ -863,8 +864,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     pr += 1
 
                                     diff_r = pr
-                                    wpl.cell(pr, 1, "Difference (should be zero)").font = _MAPBD
-                                    for ci in range(2, tot_col + 1):
+                                    wpl.cell(pr, _DC, "Difference (should be zero)").font = _MAPBD
+                                    for ci in range(_DC + 1, tot_col + 1):
                                         cl = get_column_letter(ci)
                                         c = wpl.cell(pr, ci, f"={cl}{ni_pl_row}-{cl}{qbo_ni_r}")
                                         c.number_format = NUM_FMT
@@ -872,15 +873,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     _diff_cfmt(wpl, diff_r, tot_col)
                                     pr += 1
 
-                                    _max_a = 0
+                                    wpl.column_dimensions["A"].width = 0.63
+                                    _max_b = 0
                                     for _r in range(5, wpl.max_row + 1):
-                                        _v = wpl.cell(_r, 1).value
+                                        _v = wpl.cell(_r, _DC).value
                                         if _v is not None:
-                                            _max_a = max(_max_a, len(str(_v)))
-                                    wpl.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
-                                    for ci in range(2, tot_col + 1):
+                                            _max_b = max(_max_b, len(str(_v)))
+                                    wpl.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
+                                    for ci in range(_DC + 1, tot_col + 1):
                                         wpl.column_dimensions[get_column_letter(ci)].width = 14
-                                    wpl.freeze_panes = "B6"
+                                    wpl.freeze_panes = "C6"
 
                                 # ── {Map Name} BS ──────────────────────────
                                 _, _bs_grp_l = _cl(hdr_bsg, grp_label)
@@ -894,10 +896,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wbs.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
                                     wbs.cell(2, 1, f"{map_name} \u2014 Balance Sheet").font = Font(name="Arial", size=10)
 
-                                    wbs.cell(5, 1, "Account").font = HDR_FONT
+                                    wbs.cell(5, _DC, "Account").font = HDR_FONT
                                     wbs.cell(5, 1).fill = HDR_FILL
                                     wbs.cell(5, 1).alignment = Alignment(horizontal="left")
-                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                    for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                         c = wbs.cell(5, ci, bs_month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
                                         c.alignment = Alignment(horizontal="center")
@@ -917,19 +919,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         lbl  = sec_label_display or sec
 
                                         # Section header — gray fill, bold black
-                                        c = wbs.cell(br, 1, lbl)
+                                        c = wbs.cell(br, _DC, lbl)
                                         c.font = _MAPBD; c.fill = _GRAY
-                                        for ci in range(2, num_bs_mo + 2):
+                                        for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                             wbs.cell(br, ci).font = _MAPPL
                                             wbs.cell(br, ci).fill = _GRAY
                                         br += 1
 
                                         grp_rows = []
                                         for gn in grps:
-                                            wbs.cell(br, 1, gn).font = _MAPPL
-                                            wbs.cell(br, 1).alignment = Alignment(indent=1)
+                                            wbs.cell(br, _DC, gn).font = _MAPPL
+                                            wbs.cell(br, _DC).alignment = Alignment(indent=1)
                                             grp_rows.append(br)
-                                            for ci, mk in enumerate(bs_month_keys, 2):
+                                            for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                                 df = _bs_date_f(mk)
                                                 wbs.cell(br, ci,
                                                     f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
@@ -939,10 +941,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             br += 1
 
                                         if not grp_rows:
-                                            wbs.cell(br, 1, "(none)").font = _MAPPL
-                                            wbs.cell(br, 1).alignment = Alignment(indent=1)
+                                            wbs.cell(br, _DC, "(none)").font = _MAPPL
+                                            wbs.cell(br, _DC).alignment = Alignment(indent=1)
                                             grp_rows.append(br)
-                                            for ci in range(2, num_bs_mo + 2):
+                                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                                 wbs.cell(br, ci, 0).number_format = NUM_FMT
                                             br += 1
 
@@ -951,13 +953,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     def _bs_total(label, row_lists, top_b=False, dbl_b=False):
                                         nonlocal br
                                         all_rows = [r for rl in row_lists for r in rl]
-                                        lc = wbs.cell(br, 1, label)
+                                        lc = wbs.cell(br, _DC, label)
                                         lc.font = _MAPBD
                                         if top_b or dbl_b:
                                             lc.border = Border(
                                                 top=_THIN if top_b else None,
                                                 bottom=_DBLE if dbl_b else None)
-                                        for ci in range(2, num_bs_mo + 2):
+                                        for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                             cl = get_column_letter(ci)
                                             refs = "+".join(f"{cl}{r}" for r in all_rows) if all_rows else "0"
                                             c = wbs.cell(br, ci, f"={refs}")
@@ -970,13 +972,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                     def _bs_ref_total(label, ref_rows, top_b=False, dbl_b=False):
                                         nonlocal br
-                                        lc = wbs.cell(br, 1, label)
+                                        lc = wbs.cell(br, _DC, label)
                                         lc.font = _MAPBD
                                         if top_b or dbl_b:
                                             lc.border = Border(
                                                 top=_THIN if top_b else None,
                                                 bottom=_DBLE if dbl_b else None)
-                                        for ci in range(2, num_bs_mo + 2):
+                                        for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                             cl = get_column_letter(ci)
                                             refs = "+".join(f"{cl}{r}" for r in ref_rows) if ref_rows else "0"
                                             c = wbs.cell(br, ci, f"={refs}")
@@ -1007,9 +1009,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     eq_rows = _bs_sec_block("Equity")
 
                                     ni_r = br
-                                    wbs.cell(br, 1, "Net Income").font = Font(name="Arial", size=10, color="276221")
-                                    wbs.cell(br, 1).alignment = Alignment(indent=1)
-                                    for ci, mk in enumerate(bs_month_keys, 2):
+                                    wbs.cell(br, _DC, "Net Income").font = Font(name="Arial", size=10, color="276221")
+                                    wbs.cell(br, _DC).alignment = Alignment(indent=1)
+                                    for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                         df = _bs_date_f(mk)
                                         c = wbs.cell(br, ci,
                                             f"=SUMIFS('BS Balances'!${bs_amt_col_l}:${bs_amt_col_l},"
@@ -1030,25 +1032,25 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     # ── BS validation ──────────────────────────
                                     # Balance check: TA vs TL&E
                                     br += 1
-                                    _last_bs_ci = num_bs_mo + 1
+                                    _last_bs_ci = num_bs_mo + _DC
 
-                                    wbs.cell(br, 1, "Total Assets").font = _MAPBD
-                                    for ci in range(2, num_bs_mo + 2):
+                                    wbs.cell(br, _DC, "Total Assets").font = _MAPBD
+                                    for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                         cl = get_column_letter(ci)
                                         c = wbs.cell(br, ci, f"={cl}{brr['TA']}")
                                         c.number_format = NUM_FMT; c.font = _MAPBD
                                     br += 1
 
-                                    wbs.cell(br, 1, "Total Liabilities & Equity").font = _MAPBD
-                                    for ci in range(2, num_bs_mo + 2):
+                                    wbs.cell(br, _DC, "Total Liabilities & Equity").font = _MAPBD
+                                    for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                         cl = get_column_letter(ci)
                                         c = wbs.cell(br, ci, f"={cl}{tle_r}")
                                         c.number_format = NUM_FMT; c.font = _MAPBD
                                     br += 1
 
                                     d1_r = br
-                                    wbs.cell(br, 1, "Difference (should be zero)").font = _MAPBD
-                                    for ci in range(2, num_bs_mo + 2):
+                                    wbs.cell(br, _DC, "Difference (should be zero)").font = _MAPBD
+                                    for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                         cl = get_column_letter(ci)
                                         c = wbs.cell(br, ci, f"={cl}{brr['TA']}-{cl}{tle_r}")
                                         c.number_format = NUM_FMT
@@ -1070,17 +1072,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         for chk_label, mapped_row in _bs_check_labels:
                                             bs_match_r = None
                                             for bri in range(_GL_DATA_R, ws_bs_src.max_row + 1):
-                                                lbl = str(ws_bs_src.cell(bri, 1).value or "").strip()
+                                                lbl = str(ws_bs_src.cell(bri, _DC).value or "").strip()
                                                 if lbl.lower() == chk_label.lower():
                                                     bs_match_r = bri
                                                     break
 
                                             qbo_r = br
-                                            wbs.cell(br, 1,
+                                            wbs.cell(br, _DC,
                                                 f"{chk_label} \u2014 QBO Balance Sheet").font = Font(
                                                     name="Arial", size=10, italic=True, color="276221")
                                             if bs_match_r:
-                                                for ci, mk in enumerate(bs_month_keys, 2):
+                                                for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                                     ml_s = bs_month_display.get(mk, mk)
                                                     for pci, ph in enumerate(bs_src_hdr):
                                                         if str(ph or "").strip() == ml_s:
@@ -1092,8 +1094,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             br += 1
 
                                             d_r = br
-                                            wbs.cell(br, 1, "Difference (should be zero)").font = _MAPBD
-                                            for ci in range(2, num_bs_mo + 2):
+                                            wbs.cell(br, _DC, "Difference (should be zero)").font = _MAPBD
+                                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                                 cl = get_column_letter(ci)
                                                 c = wbs.cell(br, ci,
                                                     f"={cl}{mapped_row}-{cl}{qbo_r}")
@@ -1102,30 +1104,32 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             _diff_cfmt(wbs, d_r, _last_bs_ci)
                                             br += 2
 
-                                    _max_a = 0
+                                    wbs.column_dimensions["A"].width = 0.63
+                                    _max_b = 0
                                     for _r in range(5, wbs.max_row + 1):
-                                        _v = wbs.cell(_r, 1).value
+                                        _v = wbs.cell(_r, _DC).value
                                         if _v is not None:
-                                            _max_a = max(_max_a, len(str(_v)))
-                                    wbs.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
-                                    for ci in range(2, num_bs_mo + 2):
+                                            _max_b = max(_max_b, len(str(_v)))
+                                    wbs.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
+                                    for ci in range(_DC + 1, num_bs_mo + _DC + 1):
                                         wbs.column_dimensions[get_column_letter(ci)].width = 14
-                                    wbs.freeze_panes = "B6"
+                                    wbs.freeze_panes = "C6"
 
                             except Exception as _mpt_e:
                                 import traceback
                                 logger.warning(f"Mapped P&L/BS tabs failed for '{map_name}': {_mpt_e}\n{traceback.format_exc()}")
 
                         # Column widths for Map Summary
-                        _max_a = 0
+                        ws_sum.column_dimensions["A"].width = 0.63
+                        _max_b = 0
                         for _r in range(5, ws_sum.max_row + 1):
-                            _v = ws_sum.cell(_r, 1).value
+                            _v = ws_sum.cell(_r, _DC).value
                             if _v is not None:
-                                _max_a = max(_max_a, len(str(_v)))
-                        ws_sum.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
-                        for ci in range(2, ws_sum.max_column + 1):
+                                _max_b = max(_max_b, len(str(_v)))
+                        ws_sum.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
+                        for ci in range(_DC + 1, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
-                        ws_sum.freeze_panes = "B6"
+                        ws_sum.freeze_panes = "C6"
 
                         for _ws in wb.worksheets:
                             for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
@@ -1181,10 +1185,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             hf = _Fp(name="Arial", size=10, bold=True, color="FFFFFF")
                             hb = _PFp("solid", fgColor="337E8D")
                             pf = _Fp(name="Arial", size=10)
-                            for ci, v in enumerate(rows[0], 1):
+                            ws.column_dimensions["A"].width = 0.63
+                            for ci, v in enumerate(rows[0], 2):
                                 c = ws.cell(5, ci, v); c.font = hf; c.fill = hb
                             for ri, row in enumerate(rows[1:], 6):
-                                for ci, v in enumerate(row, 1):
+                                for ci, v in enumerate(row, 2):
                                     if isinstance(v, _dtp): v = v.date()
                                     c = ws.cell(ri, ci, v); c.font = pf
                                     if isinstance(v, _datep):
@@ -1323,170 +1328,165 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 ws_s.sheet_view.showGridLines = False
                 ws_s.sheet_properties.tabColor = "C97D60"
 
-                # Logo
+                _SF  = _Ff(name="Arial", size=10)
+                _SFB = _Ff(name="Arial", size=10, bold=True)
+                _SFG = _Ff(name="Arial", size=10, color="5A6B6D")
+                _SFI = _Ff(name="Arial", size=10, italic=True, color="5A6B6D")
+                _SHF = _Ff(name="Arial", size=10, bold=True, color="FFFFFF")
+                _SHB = _PFf("solid", fgColor="07393C")
+                _SLK = _Ff(name="Arial", size=10, color="0563C1", underline="single")
+                _SGR = _Ff(name="Arial", size=10, color="276221")
+                _SRD = _Ff(name="Arial", size=10, color="CC0000")
+                _NUM = '#,##0.00_);(#,##0.00);"-"??;@'
+
+                def _sec_bar(r, text):
+                    for ci in range(1, 5):
+                        ws_s.cell(r, ci).fill = _SHB
+                    ws_s.cell(r, 1, text).font = _SHF
+
+                # Row 1: company name + logo at C1
+                ws_s.cell(1, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
                 _logo_path = _Pf(__file__).parent / "assets" / "Logo-F23-transparent.png"
                 if _logo_path.exists():
                     try:
                         from openpyxl.drawing.image import Image as _XlImg
                         img = _XlImg(str(_logo_path))
-                        img.width = 200
-                        img.height = int(img.height * (200 / max(img.width, 1)))
-                        ws_s.add_image(img, "A1")
+                        _ratio = img.height / max(img.width, 1)
+                        img.width = 200; img.height = int(200 * _ratio)
+                        ws_s.add_image(img, "C1")
                     except Exception:
                         pass
 
-                # Company info
-                ws_s.cell(5, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
-                _period_text = f"Report Period: {start_date} \u2014 {end_date}"
-                ws_s.cell(6, 1, _period_text).font = _Ff(name="Arial", size=10, color="5A6B6D")
-                from datetime import datetime as _dtf
-                _gen_date = _dtf.now().strftime("%B %d, %Y")
-                ws_s.cell(7, 1, f"Generated: {_gen_date}").font = _Ff(name="Arial", size=10, color="5A6B6D")
+                ws_s.cell(2, 1, "Summary").font = _SF
+                ws_s.cell(3, 1, "Acorn by Oakbridge Finance").font = _SFI
+                # Row 4 blank
 
-                # Reports Included
-                ws_s.cell(9, 1, "Reports Included").font = _Ff(
-                    name="Arial", size=12, bold=True, color="07393C", underline="single")
-                _LINK_STYLE = _Ff(name="Arial", size=10, color="0563C1", underline="single")
-                _sr = 10
+                # Row 5: Report Summary bar
+                _sec_bar(5, "Report Summary")
+                from datetime import datetime as _dtf
+                ws_s.cell(6, 1, f"Report Period: {start_date} \u2014 {end_date}").font = _SFG
+                ws_s.cell(7, 1, f"Generated: {_dtf.now().strftime('%B %d, %Y')}").font = _SFG
+                # Row 8 blank
+
+                # Row 9: Validation Summary bar
+                _sec_bar(9, "Validation Summary")
+
+                # Row 10: QBO Reports header
+                ws_s.cell(10, 1, "QBO Reports").font = _SFB
+
+                # Rows 11-15: GL Summary Validation reference
+                # Validation tab summary is at rows 6-10 (SUMMARY_START=6), col D (offset+2)
+                _val_ref_col = "D"  # GL Value column on validation tab (shifted)
+                if "GL Summary Validation" in wb_fin.sheetnames:
+                    ws_s.cell(11, 1, "Overall Result").font = _SF
+                    ws_s.cell(11, 3, f"='GL Summary Validation'!{_val_ref_col}6").font = _SF
+                    ws_s.cell(12, 1, "Total Accounts Checked").font = _SF
+                    ws_s.cell(12, 3, f"='GL Summary Validation'!{_val_ref_col}7").font = _SF
+                    ws_s.cell(13, 1, "Matched").font = _SF
+                    ws_s.cell(13, 3, f"='GL Summary Validation'!{_val_ref_col}8").font = _SF
+                    ws_s.cell(14, 1, "Differences Found").font = _SF
+                    ws_s.cell(14, 3, f"='GL Summary Validation'!{_val_ref_col}9").font = _SF
+                    ws_s.cell(15, 1, "Missing from GL").font = _SF
+                    ws_s.cell(15, 3, f"='GL Summary Validation'!{_val_ref_col}10").font = _SF
+                # Row 16 blank
+
+                # Per-map validation (rows 17+)
+                _sr = 17
+                for mn in _map_names:
+                    pl_tn = f"{mn} P&L"
+                    bs_tn = f"{mn} BS"
+                    ws_s.cell(_sr, 1, mn).font = _SFB
+                    _sr += 1
+
+                    # Scan Mapped P&L/BS for "Difference" label rows (col B after buffer)
+                    _pl_diff_r = None
+                    _bs_diff_rs = {}
+                    if pl_tn in wb_fin.sheetnames:
+                        ws_mp = wb_fin[pl_tn]
+                        for r in range(6, ws_mp.max_row + 1):
+                            v = str(ws_mp.cell(r, 2).value or "")
+                            if v.startswith("Difference"):
+                                _pl_diff_r = r; break
+
+                    if bs_tn in wb_fin.sheetnames:
+                        ws_mb = wb_fin[bs_tn]
+                        _prev_qbo = None
+                        for r in range(6, ws_mb.max_row + 1):
+                            v = str(ws_mb.cell(r, 2).value or "")
+                            if "QBO" in v:
+                                for bl in ["Total Assets", "Total Liabilities", "Total Equity"]:
+                                    if bl in v:
+                                        _prev_qbo = bl
+                            elif v.startswith("Difference") and _prev_qbo:
+                                _bs_diff_rs[_prev_qbo] = r
+                                _prev_qbo = None
+                            elif v.startswith("Difference") and not _prev_qbo and "Balance Check" not in _bs_diff_rs:
+                                _bs_diff_rs["Balance Check"] = r
+
+                    _checks = [
+                        ("Net Income", _pl_diff_r, pl_tn),
+                        ("Total Assets", _bs_diff_rs.get("Total Assets"), bs_tn),
+                        ("Total Liabilities", _bs_diff_rs.get("Total Liabilities"), bs_tn),
+                        ("Total Equity", _bs_diff_rs.get("Total Equity"), bs_tn),
+                        ("Assets = Liabilities + Equity", _bs_diff_rs.get("Balance Check"), bs_tn),
+                    ]
+                    for chk_lbl, chk_r, chk_tab in _checks:
+                        ws_s.cell(_sr, 1, chk_lbl).font = _SF
+                        if chk_r:
+                            ws_s.cell(_sr, 3, f"='{chk_tab}'!C{chk_r}").number_format = _NUM
+                            ws_s.cell(_sr, 4,
+                                f'=IF(OR(C{_sr}=0,C{_sr}="-"),"Passed","\u26a0 Needs Review")')
+                        else:
+                            ws_s.cell(_sr, 3, 0).number_format = _NUM
+                            ws_s.cell(_sr, 4, "Passed")
+                        _sr += 1
+                    _sr += 1  # blank row between maps
+
+                # Reports Included section
+                _sec_bar(_sr, "Reports Included")
+                _sr += 1
 
                 _display_names = {
-                    "P&L": "Profit & Loss",
-                    "Balance Sheet": "Balance Sheet",
-                    "AR Aging": "AR Aging",
-                    "AP Aging": "AP Aging",
-                    "IS GL Summary": "IS GL Summary",
-                    "BS GL Summary": "BS GL Summary",
-                    "BS Balances": "BS Balances",
-                    "IS GL Detail": "IS GL Detail",
+                    "P&L": "Profit & Loss", "Balance Sheet": "Balance Sheet",
+                    "AR Aging": "AR Aging", "AP Aging": "AP Aging",
+                    "IS GL Summary": "IS GL Summary", "BS GL Summary": "BS GL Summary",
+                    "BS Balances": "BS Balances", "IS GL Detail": "IS GL Detail",
                     "BS GL Detail": "BS GL Detail",
                     "GL Summary Validation": "GL Summary Validation",
                     "Portal_IS_Flat": "Portal Income Statement",
                     "Portal_BS_Flat": "Portal Balance Sheet",
                 }
-
-                _sections = [
-                    qbo_tabs,
-                    mapped_tabs,
-                    flat_tabs,
-                    val_tabs,
-                    portal_tabs,
-                ]
-                for si, sec_tabs in enumerate(_sections):
-                    if not sec_tabs:
+                _sec_labels = ["QBO Reports", "Mapped Reports", "Flat Files", "Validation", "Portal Data"]
+                _sec_lists  = [qbo_tabs, mapped_tabs, flat_tabs, val_tabs, portal_tabs]
+                for si, (sl, st) in enumerate(zip(_sec_labels, _sec_lists)):
+                    if not st:
                         continue
-                    if si > 0 and _sr > 10:
-                        _sr += 1
-                    for tn in sec_tabs:
+                    ws_s.cell(_sr, 1, sl).font = _SFB
+                    _sr += 1
+                    for tn in st:
                         dn = _display_names.get(tn, tn)
                         c = ws_s.cell(_sr, 1, f"\u2192 {dn}")
-                        c.font = _LINK_STYLE
+                        c.font = _SLK
                         c.hyperlink = f"#{tn}!A1"
-                        _sr += 1
-
-                # Validation Summary
-                _sr += 1
-                ws_s.cell(_sr, 1, "Validation Summary").font = _Ff(
-                    name="Arial", size=12, bold=True, color="07393C", underline="single")
-                _sr += 2
-
-                # GL Summary Validation reference
-                if "GL Summary Validation" in wb_fin.sheetnames:
-                    ws_s.cell(_sr, 1, "GL Summary Validation").font = _Ff(name="Arial", size=10, bold=True)
-                    _sr += 1
-                    ws_val = wb_fin["GL Summary Validation"]
-                    _pass_cell = ws_val.cell(6, 3).value
-                    c = ws_s.cell(_sr, 1, "Overall Result")
-                    c.font = _Ff(name="Arial", size=10)
-                    c = ws_s.cell(_sr, 2)
-                    c.value = f"='GL Summary Validation'!C6"
-                    c.font = _Ff(name="Arial", size=10)
-                    _sr += 2
-
-                # Per-map validation
-                _CHK_GREEN = _Ff(name="Arial", size=10, color="276221")
-                _CHK_RED   = _Ff(name="Arial", size=10, color="CC0000")
-
-                for mn in _map_names:
-                    vn = f"{mn} Validation"
-                    pl_tn = f"{mn} P&L"
-                    bs_tn = f"{mn} BS"
-
-                    ws_s.cell(_sr, 1, f"{mn} Validation").font = _Ff(name="Arial", size=10, bold=True)
-                    _sr += 1
-
-                    # Find diff rows on Mapped P&L and BS by scanning for "Difference" labels
-                    _pl_diff_row = None
-                    _bs_diff_rows = {}
-                    if pl_tn in wb_fin.sheetnames:
-                        ws_mpl = wb_fin[pl_tn]
-                        for r in range(6, ws_mpl.max_row + 1):
-                            v = str(ws_mpl.cell(r, 1).value or "")
-                            if v.startswith("Difference"):
-                                _pl_diff_row = r
-                                break
-
-                    if bs_tn in wb_fin.sheetnames:
-                        ws_mbs = wb_fin[bs_tn]
-                        _bs_labels = ["Total Assets", "Total Liabilities", "Total Equity"]
-                        _bs_search = {}
-                        for r in range(6, ws_mbs.max_row + 1):
-                            v = str(ws_mbs.cell(r, 1).value or "")
-                            if v.startswith("Difference"):
-                                if _bs_search:
-                                    last_key = list(_bs_search.keys())[-1]
-                                    _bs_diff_rows[last_key] = r
-                                    _bs_search.pop(last_key, None)
-                            for bl in _bs_labels:
-                                if bl in v and "QBO" in v:
-                                    _bs_search[bl] = r
-                        # Also find the A=L+E diff (first difference row, before QBO section)
-                        for r in range(6, ws_mbs.max_row + 1):
-                            v = str(ws_mbs.cell(r, 1).value or "")
-                            if v.startswith("Difference") and "Assets = L" not in v:
-                                _bs_diff_rows["Balance Check"] = r
-                                break
-
-                    _checks = []
-                    if _pl_diff_row:
-                        _checks.append(("Net Income Check", f"='{pl_tn}'!B{_pl_diff_row}"))
-                    for lbl in ["Total Assets", "Total Liabilities", "Total Equity"]:
-                        dr = _bs_diff_rows.get(lbl)
-                        if dr:
-                            _checks.append((f"{lbl} Check", f"='{bs_tn}'!B{dr}"))
-                    bc_r = _bs_diff_rows.get("Balance Check")
-                    if bc_r:
-                        _checks.append(("Assets = Liabilities + Equity", f"='{bs_tn}'!B{bc_r}"))
-
-                    for chk_label, chk_formula in _checks:
-                        ws_s.cell(_sr, 1, chk_label).font = _Ff(name="Arial", size=10)
-                        ws_s.cell(_sr, 2, chk_formula).number_format = '#,##0.00_);(#,##0.00);"-"??;@'
-                        ws_s.cell(_sr, 3,
-                            f'=IF(OR(B{_sr}=0,B{_sr}="-"),'
-                            f'"\u2713","\u26a0 Needs Review")').font = _Ff(name="Arial", size=10)
                         _sr += 1
                     _sr += 1
 
                 ws_s.column_dimensions["A"].width = 40
-                ws_s.column_dimensions["B"].width = 20
-                ws_s.column_dimensions["C"].width = 20
+                ws_s.column_dimensions["B"].width = 15
+                ws_s.column_dimensions["C"].width = 15
+                ws_s.column_dimensions["D"].width = 20
 
                 # ── Reorder tabs ──
-                final_order = []
+                # Build final order, then move each sheet to end in sequence
+                _final = []
                 for tn in ordered:
                     if tn in wb_fin.sheetnames:
-                        final_order.append(wb_fin.sheetnames.index(tn))
-                # Append any tabs not in ordered list
-                for i, sn in enumerate(wb_fin.sheetnames):
-                    if i not in final_order:
-                        final_order.append(i)
-                wb_fin.move_sheet("Summary", offset=-wb_fin.sheetnames.index("Summary"))
-                # Use the order list to rearrange
-                for target_pos, sheet_idx in enumerate(final_order):
-                    current_name = wb_fin.sheetnames[sheet_idx] if sheet_idx < len(wb_fin.sheetnames) else None
-                    if current_name:
-                        current_pos = wb_fin.sheetnames.index(current_name)
-                        if current_pos != target_pos:
-                            wb_fin.move_sheet(current_name, offset=target_pos - current_pos)
+                        _final.append(tn)
+                for sn in wb_fin.sheetnames:
+                    if sn not in _final:
+                        _final.append(sn)
+                for i, tn in enumerate(_final):
+                    wb_fin.move_sheet(tn, offset=i - wb_fin.sheetnames.index(tn))
 
                 # Arial 10 enforcement on new tabs (Summary + dividers)
                 for _ws in wb_fin.worksheets:
