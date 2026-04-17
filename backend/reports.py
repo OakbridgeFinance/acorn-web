@@ -732,8 +732,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wpl.cell(2, 1, f"{map_name} \u2014 Income Statement").font = Font(name="Arial", size=10)
 
                                     wpl.cell(5, _DC, "Account").font = HDR_FONT
-                                    wpl.cell(5, 1).fill = HDR_FILL
-                                    wpl.cell(5, 1).alignment = Alignment(horizontal="left")
+                                    wpl.cell(5, _DC).fill = HDR_FILL
+                                    wpl.cell(5, _DC).alignment = Alignment(horizontal="left")
                                     for ci, mk in enumerate(month_keys, _DC + 1):
                                         c = wpl.cell(5, ci, month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
@@ -897,8 +897,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wbs.cell(2, 1, f"{map_name} \u2014 Balance Sheet").font = Font(name="Arial", size=10)
 
                                     wbs.cell(5, _DC, "Account").font = HDR_FONT
-                                    wbs.cell(5, 1).fill = HDR_FILL
-                                    wbs.cell(5, 1).alignment = Alignment(horizontal="left")
+                                    wbs.cell(5, _DC).fill = HDR_FILL
+                                    wbs.cell(5, _DC).alignment = Alignment(horizontal="left")
                                     for ci, mk in enumerate(bs_month_keys, _DC + 1):
                                         c = wbs.cell(5, ci, bs_month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
@@ -1350,17 +1350,26 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                 # Row 1: company name (A1 overflows) + logo at D1
                 ws_s.cell(1, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
-                import os as _os_logo
-                _logo_path = _os_logo.path.join(_os_logo.path.dirname(__file__), "assets", "Logo-F23-transparent.png")
-                if _os_logo.path.exists(_logo_path):
-                    try:
-                        from openpyxl.drawing.image import Image as _XlImg
+                try:
+                    import os as _os_logo
+                    from openpyxl.drawing.image import Image as _XlImg
+                    _logo_candidates = [
+                        _os_logo.path.join(_os_logo.path.dirname(_os_logo.path.abspath(__file__)), "assets", "Logo-F23-transparent.png"),
+                        _os_logo.path.join(_os_logo.path.dirname(__file__), "assets", "Logo-F23-transparent.png"),
+                        _os_logo.path.join("backend", "assets", "Logo-F23-transparent.png"),
+                    ]
+                    _logo_path = None
+                    for _lp in _logo_candidates:
+                        if _os_logo.path.exists(_lp):
+                            _logo_path = _lp
+                            break
+                    if _logo_path:
                         img = _XlImg(_logo_path)
                         _ratio = img.height / max(img.width, 1)
                         img.width = 200; img.height = int(200 * _ratio)
                         ws_s.add_image(img, "D1")
-                    except Exception:
-                        pass
+                except Exception as _logo_err:
+                    logger.warning(f"Could not load logo: {_logo_err}")
 
                 ws_s.cell(2, 1, "Summary").font = _SF
                 ws_s.cell(3, 1, "Acorn by Oakbridge Finance").font = _SFI
@@ -1469,7 +1478,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         dn = _display_names.get(tn, tn)
                         c = ws_s.cell(_sr, 2, f"\u2192 {dn}")
                         c.font = _SLK
-                        c.hyperlink = f"#{tn}!A1"
+                        c.hyperlink = f"#'{tn}'!A1"
                         _sr += 1
                     _sr += 1
 
@@ -1490,21 +1499,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 for i, tn in enumerate(_final):
                     wb_fin.move_sheet(tn, offset=i - wb_fin.sheetnames.index(tn))
 
-                # Arial 10 enforcement on new tabs (Summary + dividers)
+                # Arial 10 enforcement on ALL tabs (final pass before save)
                 for _ws in wb_fin.worksheets:
-                    if _ws.title in ("Summary",) or _ws.title in ("QBO Reports", "Mapped Reports",
-                            "Flat Files", "Data Validation", "Portal Data"):
-                        for _row in _ws.iter_rows(min_row=1, max_row=max(_ws.max_row, 1), max_col=max(_ws.max_column, 1)):
-                            for _c in _row:
-                                if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
-                                    if _c.font.size and _c.font.size > 10:
-                                        continue
-                                    _c.font = _Ff(
-                                        name="Arial", size=10,
-                                        bold=_c.font.bold, italic=_c.font.italic,
-                                        color=_c.font.color, underline=_c.font.underline,
-                                        strikethrough=_c.font.strikethrough,
-                                    )
+                    for _row in _ws.iter_rows(min_row=1, max_row=max(_ws.max_row, 1), max_col=max(_ws.max_column, 1)):
+                        for _c in _row:
+                            if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
+                                if _c.font.size and _c.font.size > 10:
+                                    continue
+                                _c.font = _Ff(
+                                    name="Arial", size=10,
+                                    bold=_c.font.bold, italic=_c.font.italic,
+                                    color=_c.font.color, underline=_c.font.underline,
+                                    strikethrough=_c.font.strikethrough,
+                                )
 
                 wb_fin.save(file_path)
                 progress_fn("  Workbook restructured.")
