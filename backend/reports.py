@@ -1220,6 +1220,297 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     logger.warning(f"Portal tab build failed: {pe}")
                     progress_fn(f"  WARNING: Portal tabs failed — {pe}")
 
+            # ── Final restructuring: Summary tab, dividers, tab order ──
+            try:
+                progress_fn("  Finalizing workbook structure...")
+                import openpyxl as _ox_fin
+                from openpyxl.styles import Font as _Ff, PatternFill as _PFf, Alignment as _Alf
+                from openpyxl.utils import get_column_letter as _gclf
+                from pathlib import Path as _Pf
+
+                wb_fin = _ox_fin.load_workbook(file_path)
+
+                # ── Rename tabs ──
+                if "Validation" in wb_fin.sheetnames:
+                    wb_fin["Validation"].title = "GL Summary Validation"
+
+                # Derive map names from Mapped P&L tabs
+                _map_names = []
+                for sn in wb_fin.sheetnames:
+                    if sn.endswith(" P&L") and sn != "P&L":
+                        _map_names.append(sn[:-4])
+
+                if "Map Summary" in wb_fin.sheetnames and _map_names:
+                    wb_fin["Map Summary"].title = f"{_map_names[0]} Validation"
+
+                # ── Divider helper ──
+                _DIV_COLOR = "07393C"
+
+                def _make_divider(name):
+                    ws = wb_fin.create_sheet(name)
+                    ws.sheet_view.showGridLines = False
+                    ws.sheet_properties.tabColor = _DIV_COLOR
+
+                # ── Build ordered tab list ──
+                ordered = []
+
+                # Summary (will be created below)
+                ordered.append("Summary")
+
+                # QBO Reports section
+                qbo_tabs = []
+                for t in ["P&L", "Balance Sheet", "AR Aging", "AP Aging"]:
+                    if t in wb_fin.sheetnames:
+                        qbo_tabs.append(t)
+                if qbo_tabs:
+                    ordered.append("QBO Reports")
+                    _make_divider("QBO Reports")
+                    ordered.extend(qbo_tabs)
+
+                # Mapped Reports section
+                mapped_tabs = []
+                for mn in _map_names:
+                    for suffix in [" P&L", " BS"]:
+                        tn = mn + suffix
+                        if tn in wb_fin.sheetnames:
+                            mapped_tabs.append(tn)
+                if mapped_tabs:
+                    ordered.append("Mapped Reports")
+                    _make_divider("Mapped Reports")
+                    ordered.extend(mapped_tabs)
+
+                # Flat Files section
+                flat_tabs = []
+                for t in ["IS GL Summary", "BS GL Summary", "BS Balances",
+                           "IS GL Detail", "BS GL Detail"]:
+                    if t in wb_fin.sheetnames:
+                        flat_tabs.append(t)
+                if flat_tabs:
+                    ordered.append("Flat Files")
+                    _make_divider("Flat Files")
+                    ordered.extend(flat_tabs)
+
+                # Data Validation section
+                val_tabs = []
+                if "GL Summary Validation" in wb_fin.sheetnames:
+                    val_tabs.append("GL Summary Validation")
+                for mn in _map_names:
+                    vn = f"{mn} Validation"
+                    if vn in wb_fin.sheetnames:
+                        val_tabs.append(vn)
+                if val_tabs:
+                    ordered.append("Data Validation")
+                    _make_divider("Data Validation")
+                    ordered.extend(val_tabs)
+
+                # Portal Data section
+                portal_tabs = []
+                for t in ["Portal_IS_Flat", "Portal_BS_Flat"]:
+                    if t in wb_fin.sheetnames:
+                        portal_tabs.append(t)
+                if portal_tabs:
+                    ordered.append("Portal Data")
+                    _make_divider("Portal Data")
+                    ordered.extend(portal_tabs)
+
+                # Add any remaining tabs not in the ordered list
+                for sn in wb_fin.sheetnames:
+                    if sn not in ordered and sn != "Summary":
+                        ordered.append(sn)
+
+                # ── Create Summary tab ──
+                ws_s = wb_fin.create_sheet("Summary", 0)
+                ws_s.sheet_view.showGridLines = False
+                ws_s.sheet_properties.tabColor = "C97D60"
+
+                # Logo
+                _logo_path = _Pf(__file__).parent / "assets" / "Logo-F23-transparent.png"
+                if _logo_path.exists():
+                    try:
+                        from openpyxl.drawing.image import Image as _XlImg
+                        img = _XlImg(str(_logo_path))
+                        img.width = 200
+                        img.height = int(img.height * (200 / max(img.width, 1)))
+                        ws_s.add_image(img, "A1")
+                    except Exception:
+                        pass
+
+                # Company info
+                ws_s.cell(5, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
+                _period_text = f"Report Period: {start_date} \u2014 {end_date}"
+                ws_s.cell(6, 1, _period_text).font = _Ff(name="Arial", size=10, color="5A6B6D")
+                from datetime import datetime as _dtf
+                _gen_date = _dtf.now().strftime("%B %d, %Y")
+                ws_s.cell(7, 1, f"Generated: {_gen_date}").font = _Ff(name="Arial", size=10, color="5A6B6D")
+
+                # Reports Included
+                ws_s.cell(9, 1, "Reports Included").font = _Ff(
+                    name="Arial", size=12, bold=True, color="07393C", underline="single")
+                _LINK_STYLE = _Ff(name="Arial", size=10, color="0563C1", underline="single")
+                _sr = 10
+
+                _display_names = {
+                    "P&L": "Profit & Loss",
+                    "Balance Sheet": "Balance Sheet",
+                    "AR Aging": "AR Aging",
+                    "AP Aging": "AP Aging",
+                    "IS GL Summary": "IS GL Summary",
+                    "BS GL Summary": "BS GL Summary",
+                    "BS Balances": "BS Balances",
+                    "IS GL Detail": "IS GL Detail",
+                    "BS GL Detail": "BS GL Detail",
+                    "GL Summary Validation": "GL Summary Validation",
+                    "Portal_IS_Flat": "Portal Income Statement",
+                    "Portal_BS_Flat": "Portal Balance Sheet",
+                }
+
+                _sections = [
+                    qbo_tabs,
+                    mapped_tabs,
+                    flat_tabs,
+                    val_tabs,
+                    portal_tabs,
+                ]
+                for si, sec_tabs in enumerate(_sections):
+                    if not sec_tabs:
+                        continue
+                    if si > 0 and _sr > 10:
+                        _sr += 1
+                    for tn in sec_tabs:
+                        dn = _display_names.get(tn, tn)
+                        c = ws_s.cell(_sr, 1, f"\u2192 {dn}")
+                        c.font = _LINK_STYLE
+                        c.hyperlink = f"#{tn}!A1"
+                        _sr += 1
+
+                # Validation Summary
+                _sr += 1
+                ws_s.cell(_sr, 1, "Validation Summary").font = _Ff(
+                    name="Arial", size=12, bold=True, color="07393C", underline="single")
+                _sr += 2
+
+                # GL Summary Validation reference
+                if "GL Summary Validation" in wb_fin.sheetnames:
+                    ws_s.cell(_sr, 1, "GL Summary Validation").font = _Ff(name="Arial", size=10, bold=True)
+                    _sr += 1
+                    ws_val = wb_fin["GL Summary Validation"]
+                    _pass_cell = ws_val.cell(6, 3).value
+                    c = ws_s.cell(_sr, 1, "Overall Result")
+                    c.font = _Ff(name="Arial", size=10)
+                    c = ws_s.cell(_sr, 2)
+                    c.value = f"='GL Summary Validation'!C6"
+                    c.font = _Ff(name="Arial", size=10)
+                    _sr += 2
+
+                # Per-map validation
+                _CHK_GREEN = _Ff(name="Arial", size=10, color="276221")
+                _CHK_RED   = _Ff(name="Arial", size=10, color="CC0000")
+
+                for mn in _map_names:
+                    vn = f"{mn} Validation"
+                    pl_tn = f"{mn} P&L"
+                    bs_tn = f"{mn} BS"
+
+                    ws_s.cell(_sr, 1, f"{mn} Validation").font = _Ff(name="Arial", size=10, bold=True)
+                    _sr += 1
+
+                    # Find diff rows on Mapped P&L and BS by scanning for "Difference" labels
+                    _pl_diff_row = None
+                    _bs_diff_rows = {}
+                    if pl_tn in wb_fin.sheetnames:
+                        ws_mpl = wb_fin[pl_tn]
+                        for r in range(6, ws_mpl.max_row + 1):
+                            v = str(ws_mpl.cell(r, 1).value or "")
+                            if v.startswith("Difference"):
+                                _pl_diff_row = r
+                                break
+
+                    if bs_tn in wb_fin.sheetnames:
+                        ws_mbs = wb_fin[bs_tn]
+                        _bs_labels = ["Total Assets", "Total Liabilities", "Total Equity"]
+                        _bs_search = {}
+                        for r in range(6, ws_mbs.max_row + 1):
+                            v = str(ws_mbs.cell(r, 1).value or "")
+                            if v.startswith("Difference"):
+                                if _bs_search:
+                                    last_key = list(_bs_search.keys())[-1]
+                                    _bs_diff_rows[last_key] = r
+                                    _bs_search.pop(last_key, None)
+                            for bl in _bs_labels:
+                                if bl in v and "QBO" in v:
+                                    _bs_search[bl] = r
+                        # Also find the A=L+E diff (first difference row, before QBO section)
+                        for r in range(6, ws_mbs.max_row + 1):
+                            v = str(ws_mbs.cell(r, 1).value or "")
+                            if v.startswith("Difference") and "Assets = L" not in v:
+                                _bs_diff_rows["Balance Check"] = r
+                                break
+
+                    _checks = []
+                    if _pl_diff_row:
+                        _checks.append(("Net Income Check", f"='{pl_tn}'!B{_pl_diff_row}"))
+                    for lbl in ["Total Assets", "Total Liabilities", "Total Equity"]:
+                        dr = _bs_diff_rows.get(lbl)
+                        if dr:
+                            _checks.append((f"{lbl} Check", f"='{bs_tn}'!B{dr}"))
+                    bc_r = _bs_diff_rows.get("Balance Check")
+                    if bc_r:
+                        _checks.append(("Assets = Liabilities + Equity", f"='{bs_tn}'!B{bc_r}"))
+
+                    for chk_label, chk_formula in _checks:
+                        ws_s.cell(_sr, 1, chk_label).font = _Ff(name="Arial", size=10)
+                        ws_s.cell(_sr, 2, chk_formula).number_format = '#,##0.00_);(#,##0.00);"-"??;@'
+                        ws_s.cell(_sr, 3,
+                            f'=IF(OR(B{_sr}=0,B{_sr}="-"),'
+                            f'"\u2713","\u26a0 Needs Review")').font = _Ff(name="Arial", size=10)
+                        _sr += 1
+                    _sr += 1
+
+                ws_s.column_dimensions["A"].width = 40
+                ws_s.column_dimensions["B"].width = 20
+                ws_s.column_dimensions["C"].width = 20
+
+                # ── Reorder tabs ──
+                final_order = []
+                for tn in ordered:
+                    if tn in wb_fin.sheetnames:
+                        final_order.append(wb_fin.sheetnames.index(tn))
+                # Append any tabs not in ordered list
+                for i, sn in enumerate(wb_fin.sheetnames):
+                    if i not in final_order:
+                        final_order.append(i)
+                wb_fin.move_sheet("Summary", offset=-wb_fin.sheetnames.index("Summary"))
+                # Use the order list to rearrange
+                for target_pos, sheet_idx in enumerate(final_order):
+                    current_name = wb_fin.sheetnames[sheet_idx] if sheet_idx < len(wb_fin.sheetnames) else None
+                    if current_name:
+                        current_pos = wb_fin.sheetnames.index(current_name)
+                        if current_pos != target_pos:
+                            wb_fin.move_sheet(current_name, offset=target_pos - current_pos)
+
+                # Arial 10 enforcement on new tabs (Summary + dividers)
+                for _ws in wb_fin.worksheets:
+                    if _ws.title in ("Summary",) or _ws.title in ("QBO Reports", "Mapped Reports",
+                            "Flat Files", "Data Validation", "Portal Data"):
+                        for _row in _ws.iter_rows(min_row=1, max_row=max(_ws.max_row, 1), max_col=max(_ws.max_column, 1)):
+                            for _c in _row:
+                                if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
+                                    if _c.font.size and _c.font.size > 10:
+                                        continue
+                                    _c.font = _Ff(
+                                        name="Arial", size=10,
+                                        bold=_c.font.bold, italic=_c.font.italic,
+                                        color=_c.font.color, underline=_c.font.underline,
+                                        strikethrough=_c.font.strikethrough,
+                                    )
+
+                wb_fin.save(file_path)
+                progress_fn("  Workbook restructured.")
+            except Exception as _rs_err:
+                import traceback
+                logger.warning(f"Workbook restructuring failed: {_rs_err}\n{traceback.format_exc()}")
+                progress_fn(f"  WARNING: Restructuring failed — {_rs_err}")
+
             # Upload to Supabase storage
             storage_path = f"{user_id}/{job_id}/{file_name}"
             with open(file_path, "rb") as f:
