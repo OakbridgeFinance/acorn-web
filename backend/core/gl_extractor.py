@@ -1657,23 +1657,23 @@ def _write_validation_sheet(
     ws.conditional_formatting.add(
         f"C{SUMMARY_START}",
         CellIsRule(operator="equal", formula=['"\u2713 PASS"'],
-                   fill=PatternFill("solid", fgColor="C6EFCE"), font=Font(bold=True)))
+                   fill=PatternFill("solid", fgColor="C6EFCE"), font=_font(bold=True)))
     ws.conditional_formatting.add(
         f"C{SUMMARY_START}",
         CellIsRule(operator="equal", formula=['"\u2717 FAIL"'],
-                   fill=PatternFill("solid", fgColor="FFC7CE"), font=Font(bold=True)))
+                   fill=PatternFill("solid", fgColor="FFC7CE"), font=_font(bold=True)))
 
     detail_range = f"A{DETAIL_START}:G{last_data_row}"
     # FormulaRule: $F locks column, row is relative — Excel extends down each row
     ws.conditional_formatting.add(detail_range,
         FormulaRule(formula=[f'$F{DETAIL_START}="MATCH"'],
-                    fill=GREEN, font=Font(color="276221")))
+                    fill=GREEN, font=_font(color="276221")))
     ws.conditional_formatting.add(detail_range,
         FormulaRule(formula=[f'$F{DETAIL_START}="DIFF"'],
-                    fill=RED, font=Font(color="9C0006")))
+                    fill=RED, font=_font(color="9C0006")))
     ws.conditional_formatting.add(detail_range,
         FormulaRule(formula=[f'$F{DETAIL_START}="MISSING"'],
-                    fill=YELLOW, font=Font(color="9C5700")))
+                    fill=YELLOW, font=_font(color="9C5700")))
     GREY = PatternFill("solid", fgColor="F2F2F2")
     ws.conditional_formatting.add(detail_range,
         FormulaRule(formula=[f'$F{DETAIL_START}="NO ACTIVITY"'], fill=GREY))
@@ -1810,7 +1810,7 @@ def _write_report_sheet(
                     CellIsRule(
                         operator="notEqual",
                         formula=["0"],
-                        font=Font(bold=True, color="C00000"),
+                        font=_font(bold=True, color="C00000"),
                         fill=PatternFill("solid", fgColor="FFE0E0"),
                     )
                 )

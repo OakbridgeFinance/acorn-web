@@ -182,6 +182,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                         wb = _ox.load_workbook(file_path)
 
+                        if "Normal" in wb.style_names:
+                            wb._named_styles["Normal"].font = Font(name="Arial", size=10)
+
                         for sn in wb.sheetnames:
                             wb[sn].sheet_view.showGridLines = False
 
