@@ -2157,7 +2157,8 @@ def generate_lite(
 
     pl_validation_rows = []
     if pl_report_rows and len(pl_report_rows) > 1 and IS_AMT and IS_MON and IS_TYP:
-        month_labels_val = pl_report_rows[0][1:]
+        _all_labels = pl_report_rows[0][1:]
+        month_labels_val = [ml for ml in _all_labels if str(ml).strip().lower() != "total"]
         num_months_val   = len(month_labels_val)
 
         from openpyxl.utils import get_column_letter as _gcl_pl
@@ -2260,6 +2261,12 @@ def generate_lite(
         LIAB_TYPES  = ["Accounts Payable", "Credit Card", "Other Current Liability",
                        "Long Term Liability"]
 
+        # Resolve BS Balances column letters dynamically
+        _bal_hdr = bal_rows[0] if bal_rows else []
+        _BAL_COL = _col_letter(_bal_hdr, "Ending Balance") or _gcl_bs(_DC + 5)
+        _MON_COL = _col_letter(_bal_hdr, "Month") or _gcl_bs(_DC + 4)
+        _GRP_COL = _col_letter(_bal_hdr, "Account Group") or _gcl_bs(_DC + 3)
+
         # Total Assets rows
         ta_report_row = ["Total Assets — Balance Sheet Report"] + (
             [f"={_gcl_bs(ci + _DC + 1)}{total_assets_idx}" for ci in range(num_bs_months_val)]
@@ -2270,9 +2277,9 @@ def generate_lite(
             if me_dt:
                 me_formula = f"DATE({me_dt.year},{me_dt.month},{me_dt.day})"
                 ta_gl_row.append(
-                    f"=SUMIFS('BS Balances'!F:F,"
-                    f"'BS Balances'!E:E,{me_formula},"
-                    f"'BS Balances'!D:D,\"Asset\")"
+                    f"=SUMIFS('BS Balances'!{_BAL_COL}:{_BAL_COL},"
+                    f"'BS Balances'!{_MON_COL}:{_MON_COL},{me_formula},"
+                    f"'BS Balances'!{_GRP_COL}:{_GRP_COL},\"Asset\")"
                 )
             else:
                 ta_gl_row.append("")
@@ -2287,9 +2294,9 @@ def generate_lite(
             if me_dt:
                 me_formula = f"DATE({me_dt.year},{me_dt.month},{me_dt.day})"
                 tl_gl_row.append(
-                    f"=SUMIFS('BS Balances'!F:F,"
-                    f"'BS Balances'!E:E,{me_formula},"
-                    f"'BS Balances'!D:D,\"Liability\")"
+                    f"=SUMIFS('BS Balances'!{_BAL_COL}:{_BAL_COL},"
+                    f"'BS Balances'!{_MON_COL}:{_MON_COL},{me_formula},"
+                    f"'BS Balances'!{_GRP_COL}:{_GRP_COL},\"Liability\")"
                 )
             else:
                 tl_gl_row.append("")
@@ -2304,9 +2311,9 @@ def generate_lite(
             if me_dt:
                 me_formula = f"DATE({me_dt.year},{me_dt.month},{me_dt.day})"
                 te_gl_row.append(
-                    f"=SUMIFS('BS Balances'!F:F,"
-                    f"'BS Balances'!E:E,{me_formula},"
-                    f"'BS Balances'!D:D,\"Equity\")"
+                    f"=SUMIFS('BS Balances'!{_BAL_COL}:{_BAL_COL},"
+                    f"'BS Balances'!{_MON_COL}:{_MON_COL},{me_formula},"
+                    f"'BS Balances'!{_GRP_COL}:{_GRP_COL},\"Equity\")"
                 )
             else:
                 te_gl_row.append("")

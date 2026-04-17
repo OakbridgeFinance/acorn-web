@@ -1378,7 +1378,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 _sec_bar(5, "Report Summary")
                 from datetime import datetime as _dtf
                 ws_s.cell(6, 2, f"Report Period: {start_date} \u2014 {end_date}").font = _SFG
-                _now = _dtf.now()
+                try:
+                    from zoneinfo import ZoneInfo
+                    _now = _dtf.now(ZoneInfo("America/Chicago"))
+                except Exception:
+                    _now = _dtf.now()
                 try:
                     _time_s = _now.strftime("%-I:%M %p")
                 except ValueError:
@@ -1391,9 +1395,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 ws_s.cell(10, 2, "QBO Reports").font = _SFB
 
                 _val_ref_col = "D"
+                _SGR = _Ff(name="Arial", size=10, color="276221")
                 if "GL Summary Validation" in wb_fin.sheetnames:
                     ws_s.cell(11, 2, "Overall Result").font = _SF
-                    ws_s.cell(11, 4, f"='GL Summary Validation'!{_val_ref_col}6").font = _SF
+                    ws_s.cell(11, 4, f"='GL Summary Validation'!{_val_ref_col}6").font = _SGR
                     ws_s.cell(12, 2, "Total Accounts Checked").font = _SF
                     ws_s.cell(12, 4, f"='GL Summary Validation'!{_val_ref_col}7").font = _SF
                     ws_s.cell(13, 2, "Matched").font = _SF
@@ -1441,15 +1446,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ("Total Equity", _bs_diff_rs.get("Total Equity"), bs_tn),
                         ("Assets = Liabilities + Equity", _bs_diff_rs.get("Balance Check"), bs_tn),
                     ]
+                    _SRD = _Ff(name="Arial", size=10, color="CC0000")
                     for chk_lbl, chk_r, chk_tab in _checks:
                         ws_s.cell(_sr, 2, chk_lbl).font = _SF
                         if chk_r:
                             ws_s.cell(_sr, 4, f"='{chk_tab}'!C{chk_r}").number_format = _NUM
                             ws_s.cell(_sr, 5,
                                 f'=IF(ABS(D{_sr})<0.01,"Passed","\u26a0 Needs Review")')
+                            ws_s.cell(_sr, 5).font = _SGR
                         else:
                             ws_s.cell(_sr, 4, 0).number_format = _NUM
-                            ws_s.cell(_sr, 5, "Passed")
+                            ws_s.cell(_sr, 5, "Passed").font = _SGR
                         _sr += 1
                     _sr += 1
 
