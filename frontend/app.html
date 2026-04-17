@@ -1011,7 +1011,6 @@ function setRunning(running) {
   if (lbl) lbl.textContent = running ? 'Generating\u2026' : 'Generate Report';
   if (spinner) running ? show(spinner) : hide(spinner);
   if (stopBtn) stopBtn.style.display = running ? '' : 'none';
-  if (!running) _currentJobId = null;
   const title = $('liteProgressTitle');
   if (title) {
     if (running) {
