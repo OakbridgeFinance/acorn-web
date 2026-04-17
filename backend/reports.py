@@ -792,7 +792,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     # Calculated rows — bold; Net Income gets thin-top + double-bottom
                                     def _calc(label, plus, minus, top_b=False, dbl_b=False):
                                         nonlocal pr
-                                        wpl.cell(pr, 1, label).font = _MAPBD
+                                        lc = wpl.cell(pr, 1, label)
+                                        lc.font = _MAPBD
+                                        if top_b or dbl_b:
+                                            lc.border = Border(
+                                                top=_THIN if top_b else None,
+                                                bottom=_DBLE if dbl_b else None)
                                         for ci in range(2, tot_col + 1):
                                             cl = get_column_letter(ci)
                                             pp = [f"+{cl}{rr[k]}" for k in plus if k in rr]
@@ -867,7 +872,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     _diff_cfmt(wpl, diff_r, tot_col)
                                     pr += 1
 
-                                    wpl.column_dimensions["A"].width = 42
+                                    _max_a = 0
+                                    for _r in range(5, wpl.max_row + 1):
+                                        _v = wpl.cell(_r, 1).value
+                                        if _v is not None:
+                                            _max_a = max(_max_a, len(str(_v)))
+                                    wpl.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
                                     for ci in range(2, tot_col + 1):
                                         wpl.column_dimensions[get_column_letter(ci)].width = 14
                                     wpl.freeze_panes = "B6"
@@ -941,7 +951,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     def _bs_total(label, row_lists, top_b=False, dbl_b=False):
                                         nonlocal br
                                         all_rows = [r for rl in row_lists for r in rl]
-                                        wbs.cell(br, 1, label).font = _MAPBD
+                                        lc = wbs.cell(br, 1, label)
+                                        lc.font = _MAPBD
+                                        if top_b or dbl_b:
+                                            lc.border = Border(
+                                                top=_THIN if top_b else None,
+                                                bottom=_DBLE if dbl_b else None)
                                         for ci in range(2, num_bs_mo + 2):
                                             cl = get_column_letter(ci)
                                             refs = "+".join(f"{cl}{r}" for r in all_rows) if all_rows else "0"
@@ -955,7 +970,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                                     def _bs_ref_total(label, ref_rows, top_b=False, dbl_b=False):
                                         nonlocal br
-                                        wbs.cell(br, 1, label).font = _MAPBD
+                                        lc = wbs.cell(br, 1, label)
+                                        lc.font = _MAPBD
+                                        if top_b or dbl_b:
+                                            lc.border = Border(
+                                                top=_THIN if top_b else None,
+                                                bottom=_DBLE if dbl_b else None)
                                         for ci in range(2, num_bs_mo + 2):
                                             cl = get_column_letter(ci)
                                             refs = "+".join(f"{cl}{r}" for r in ref_rows) if ref_rows else "0"
@@ -1082,7 +1102,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             _diff_cfmt(wbs, d_r, _last_bs_ci)
                                             br += 2
 
-                                    wbs.column_dimensions["A"].width = 42
+                                    _max_a = 0
+                                    for _r in range(5, wbs.max_row + 1):
+                                        _v = wbs.cell(_r, 1).value
+                                        if _v is not None:
+                                            _max_a = max(_max_a, len(str(_v)))
+                                    wbs.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
                                     for ci in range(2, num_bs_mo + 2):
                                         wbs.column_dimensions[get_column_letter(ci)].width = 14
                                     wbs.freeze_panes = "B6"
@@ -1092,7 +1117,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 logger.warning(f"Mapped P&L/BS tabs failed for '{map_name}': {_mpt_e}\n{traceback.format_exc()}")
 
                         # Column widths for Map Summary
-                        ws_sum.column_dimensions["A"].width = 28
+                        _max_a = 0
+                        for _r in range(5, ws_sum.max_row + 1):
+                            _v = ws_sum.cell(_r, 1).value
+                            if _v is not None:
+                                _max_a = max(_max_a, len(str(_v)))
+                        ws_sum.column_dimensions["A"].width = min(max(_max_a + 4, 30), 50)
                         for ci in range(2, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
                         ws_sum.freeze_panes = "B6"

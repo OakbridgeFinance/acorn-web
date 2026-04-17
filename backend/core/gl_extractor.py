@@ -1833,7 +1833,12 @@ def _write_report_sheet(
                     )
                 )
 
-    ws.column_dimensions["A"].width = 42
+    max_a = 0
+    for r in range(5, ws.max_row + 1):
+        v = ws.cell(r, 1).value
+        if v is not None:
+            max_a = max(max_a, len(str(v)))
+    ws.column_dimensions["A"].width = min(max(max_a + 4, 30), 50)
     for ci in range(2, len(rows[0]) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 14
 
