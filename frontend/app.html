@@ -185,6 +185,7 @@
             <label for="includeARaging" id="labelARaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
               Include AR Aging
             </label>
+            <span id="arAgingDate" style="font-size:0.7rem;color:var(--text-dim);font-style:italic;"></span>
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -192,6 +193,7 @@
             <label for="includeAPaging" id="labelAPaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
               Include AP Aging
             </label>
+            <span id="apAgingDate" style="font-size:0.7rem;color:var(--text-dim);font-style:italic;"></span>
           </div>
 
           <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
@@ -696,10 +698,10 @@ function onPeriodChange() {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     if ($('liteDateStart')) $('liteDateStart').value = fmt(s);
     if ($('liteDateEnd'))   $('liteDateEnd').value   = fmt(e);
-    // Update AR/AP aging labels
+    // Update AR/AP aging date notes
     const formatted = e.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    if ($('labelARaging')) $('labelARaging').textContent = 'Include AR Aging (as of ' + formatted + ')';
-    if ($('labelAPaging')) $('labelAPaging').textContent = 'Include AP Aging (as of ' + formatted + ')';
+    if ($('arAgingDate')) $('arAgingDate').textContent = '(as of ' + formatted + ')';
+    if ($('apAgingDate')) $('apAgingDate').textContent = '(as of ' + formatted + ')';
   }
 }
 
@@ -1771,14 +1773,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update AR/AP Aging labels with formatted end date
     const arLabel = $('labelARaging');
     const apLabel = $('labelAPaging');
+    const arDate = $('arAgingDate');
+    const apDate = $('apAgingDate');
     if (this.value) {
       const d = new Date(this.value + 'T00:00:00');
       const formatted = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      if (arLabel) arLabel.textContent = 'Include AR Aging (as of ' + formatted + ')';
-      if (apLabel) apLabel.textContent = 'Include AP Aging (as of ' + formatted + ')';
+      if (arDate) arDate.textContent = '(as of ' + formatted + ')';
+      if (apDate) apDate.textContent = '(as of ' + formatted + ')';
     } else {
-      if (arLabel) arLabel.textContent = 'Include AR Aging';
-      if (apLabel) apLabel.textContent = 'Include AP Aging';
+      if (arDate) arDate.textContent = '';
+      if (apDate) apDate.textContent = '';
     }
   });
 });
