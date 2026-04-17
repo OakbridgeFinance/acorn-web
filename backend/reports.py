@@ -156,6 +156,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 include_gl_detail=include_gl_detail,
                 include_ar_aging=include_ar_aging,
                 include_ap_aging=include_ap_aging,
+                company_name=company_name,
             )
             file_path = result["path"]
 
@@ -216,12 +217,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         out[name] = (gname, sect)
                             return out
 
+                        _GL_HDR_R = 5   # column headers now at row 5
+                        _GL_DATA_R = 6  # data starts at row 6
+
                         # ── Append to IS GL Detail, BS GL Detail, BS Balances ──
                         for tab in ("IS GL Summary", "BS GL Summary", "IS GL Detail", "BS GL Detail", "BS Balances"):
                             if tab not in wb.sheetnames:
                                 continue
                             ws  = wb[tab]
-                            hdr = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+                            hdr = [ws.cell(_GL_HDR_R, c).value for c in range(1, ws.max_column + 1)]
                             acct_col = None
                             for candidate in ("Account Name", "Account"):
                                 if candidate in hdr:
@@ -235,11 +239,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 gc    = base + mi * 2
                                 sc    = base + mi * 2 + 1
                                 mname = m.get("map_name", "")
-                                ws.cell(1, gc, f"{mname} - Account Group").font = GL_HDR_FONT
-                                ws.cell(1, gc).fill = GL_HDR_FILL
-                                ws.cell(1, sc, f"{mname} - Statement Section").font = GL_HDR_FONT
-                                ws.cell(1, sc).fill = GL_HDR_FILL
-                                for ri in range(2, ws.max_row + 1):
+                                ws.cell(_GL_HDR_R, gc, f"{mname} - Account Group").font = GL_HDR_FONT
+                                ws.cell(_GL_HDR_R, gc).fill = GL_HDR_FILL
+                                ws.cell(_GL_HDR_R, sc, f"{mname} - Statement Section").font = GL_HDR_FONT
+                                ws.cell(_GL_HDR_R, sc).fill = GL_HDR_FILL
+                                for ri in range(_GL_DATA_R, ws.max_row + 1):
                                     v = ws.cell(ri, acct_col).value
                                     if not v:
                                         continue
@@ -251,7 +255,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             # Autofit mapping columns after all data is written
                             for ci in range(base, ws.max_column + 1):
                                 max_len = 0
-                                for ri in range(1, ws.max_row + 1):
+                                for ri in range(_GL_HDR_R, ws.max_row + 1):
                                     cv = ws.cell(ri, ci).value
                                     if cv is not None:
                                         max_len = max(max_len, len(str(cv)))
@@ -262,7 +266,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             del wb["Map Summary"]
                         ws_sum = wb.create_sheet("Map Summary")
                         ws_sum.sheet_view.showGridLines = False
-                        cr = 1  # current row
+                        _first_map = maps_to_apply[0].get("map_name", "") if maps_to_apply else ""
+                        ws_sum.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
+                        ws_sum.cell(2, 1, f"{_first_map} \u2014 Summary").font = Font(name="Arial", size=10)
+                        cr = 5  # current row (rows 1-4 are global header)
 
                         for m in maps_to_apply:
                             map_name  = m.get("map_name", "")
@@ -273,7 +280,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if "IS GL Summary" not in wb.sheetnames:
                                 continue
                             ws_is  = wb["IS GL Summary"]
-                            hdr_is = [ws_is.cell(1, c).value
+                            hdr_is = [ws_is.cell(_GL_HDR_R, c).value
                                       for c in range(1, ws_is.max_column + 1)]
 
                             # Resolve IS GL Summary columns dynamically
@@ -295,7 +302,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             month_keys    = []
                             month_display = {}
                             month_dates   = {}
-                            for ri in range(2, ws_is.max_row + 1):
+                            for ri in range(_GL_DATA_R, ws_is.max_row + 1):
                                 mv = ws_is.cell(ri, is_mon_col_i).value
                                 if mv is None:
                                     continue
@@ -417,9 +424,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 "Net Income \u2014 QBO P&L").font = Font(name="Arial", size=10, italic=True)
                             if "P&L" in wb.sheetnames:
                                 ws_pl  = wb["P&L"]
-                                pl_hdr = [ws_pl.cell(1, c).value
+                                pl_hdr = [ws_pl.cell(_GL_HDR_R, c).value
                                           for c in range(1, ws_pl.max_column + 1)]
-                                for pri in range(2, ws_pl.max_row + 1):
+                                for pri in range(_GL_DATA_R, ws_pl.max_row + 1):
                                     lbl = str(ws_pl.cell(pri, 1).value or "").strip().lower()
                                     if lbl in ("net income", "net earnings"):
                                         for ci, mk in enumerate(month_keys, 2):
@@ -463,7 +470,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             if "BS Balances" not in wb.sheetnames:
                                 continue
                             ws_bsg  = wb["BS Balances"]
-                            hdr_bsg = [ws_bsg.cell(1, c).value
+                            hdr_bsg = [ws_bsg.cell(_GL_HDR_R, c).value
                                        for c in range(1, ws_bsg.max_column + 1)]
 
                             bs_amt_col_i, bs_amt_col_l = _cl(hdr_bsg, "Ending Balance")
@@ -478,7 +485,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             bs_month_keys    = []
                             bs_month_display = {}
                             bs_month_dates   = {}
-                            for ri in range(2, ws_bsg.max_row + 1):
+                            for ri in range(_GL_DATA_R, ws_bsg.max_row + 1):
                                 mv = ws_bsg.cell(ri, bs_mon_col_i).value
                                 if mv is None:
                                     continue
@@ -600,11 +607,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 ws_sum.cell(cr, 1, f"{total_label} \u2014 QBO Balance Sheet").font = LINK_FONT
                                 if "Balance Sheet" in wb.sheetnames:
                                     ws_bs_rpt = wb["Balance Sheet"]
-                                    bs_rpt_hdr = [ws_bs_rpt.cell(1, c).value
+                                    bs_rpt_hdr = [ws_bs_rpt.cell(_GL_HDR_R, c).value
                                                   for c in range(1, ws_bs_rpt.max_column + 1)]
-                                    # Find the row matching total_label in the Balance Sheet tab
                                     bs_match_row = None
-                                    for bri in range(2, ws_bs_rpt.max_row + 1):
+                                    for bri in range(_GL_DATA_R, ws_bs_rpt.max_row + 1):
                                         lbl = str(ws_bs_rpt.cell(bri, 1).value or "").strip()
                                         if lbl.lower() == total_label.lower():
                                             bs_match_row = bri
@@ -721,20 +727,21 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         del wb[_pl_tab]
                                     wpl = wb.create_sheet(_pl_tab)
                                     wpl.sheet_view.showGridLines = False
+                                    wpl.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
+                                    wpl.cell(2, 1, f"{map_name} \u2014 Income Statement").font = Font(name="Arial", size=10)
 
-                                    # Row 1: header row (matches existing P&L row 1)
-                                    wpl.cell(1, 1, "Account").font = HDR_FONT
-                                    wpl.cell(1, 1).fill = HDR_FILL
-                                    wpl.cell(1, 1).alignment = Alignment(horizontal="left")
+                                    wpl.cell(5, 1, "Account").font = HDR_FONT
+                                    wpl.cell(5, 1).fill = HDR_FILL
+                                    wpl.cell(5, 1).alignment = Alignment(horizontal="left")
                                     for ci, mk in enumerate(month_keys, 2):
-                                        c = wpl.cell(1, ci, month_display.get(mk, mk))
+                                        c = wpl.cell(5, ci, month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
                                         c.alignment = Alignment(horizontal="center")
-                                    wpl.cell(1, tot_col, "Total").font = HDR_FONT
-                                    wpl.cell(1, tot_col).fill = HDR_FILL
-                                    wpl.cell(1, tot_col).alignment = Alignment(horizontal="center")
+                                    wpl.cell(5, tot_col, "Total").font = HDR_FONT
+                                    wpl.cell(5, tot_col).fill = HDR_FILL
+                                    wpl.cell(5, tot_col).alignment = Alignment(horizontal="center")
 
-                                    pr = 2
+                                    pr = 6
                                     rr = {}
 
                                     PL_SECS = ["Revenue", "COS", "Cost of Goods Sold",
@@ -825,9 +832,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         name="Arial", size=10, italic=True, color="276221")
                                     if "P&L" in wb.sheetnames:
                                         ws_pl_src = wb["P&L"]
-                                        pl_src_hdr = [ws_pl_src.cell(1, c).value
+                                        pl_src_hdr = [ws_pl_src.cell(_GL_HDR_R, c).value
                                                       for c in range(1, ws_pl_src.max_column + 1)]
-                                        for pri in range(2, ws_pl_src.max_row + 1):
+                                        for pri in range(_GL_DATA_R, ws_pl_src.max_row + 1):
                                             lbl = str(ws_pl_src.cell(pri, 1).value or "").strip().lower()
                                             if lbl in ("net income", "net earnings"):
                                                 for ci, mk in enumerate(month_keys, 2):
@@ -863,7 +870,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wpl.column_dimensions["A"].width = 42
                                     for ci in range(2, tot_col + 1):
                                         wpl.column_dimensions[get_column_letter(ci)].width = 14
-                                    wpl.freeze_panes = "B2"
+                                    wpl.freeze_panes = "B6"
 
                                 # ── {Map Name} BS ──────────────────────────
                                 _, _bs_grp_l = _cl(hdr_bsg, grp_label)
@@ -874,17 +881,18 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         del wb[_bs_tab]
                                     wbs = wb.create_sheet(_bs_tab)
                                     wbs.sheet_view.showGridLines = False
+                                    wbs.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
+                                    wbs.cell(2, 1, f"{map_name} \u2014 Balance Sheet").font = Font(name="Arial", size=10)
 
-                                    # Row 1: header row (matches existing Balance Sheet)
-                                    wbs.cell(1, 1, "Account").font = HDR_FONT
-                                    wbs.cell(1, 1).fill = HDR_FILL
-                                    wbs.cell(1, 1).alignment = Alignment(horizontal="left")
+                                    wbs.cell(5, 1, "Account").font = HDR_FONT
+                                    wbs.cell(5, 1).fill = HDR_FILL
+                                    wbs.cell(5, 1).alignment = Alignment(horizontal="left")
                                     for ci, mk in enumerate(bs_month_keys, 2):
-                                        c = wbs.cell(1, ci, bs_month_display.get(mk, mk))
+                                        c = wbs.cell(5, ci, bs_month_display.get(mk, mk))
                                         c.font = HDR_FONT; c.fill = HDR_FILL
                                         c.alignment = Alignment(horizontal="center")
 
-                                    br = 2
+                                    br = 6
                                     brr = {}
 
                                     def _bs_sec_block(sec, sec_label_display=None):
@@ -1036,12 +1044,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     ]
                                     if "Balance Sheet" in wb.sheetnames:
                                         ws_bs_src = wb["Balance Sheet"]
-                                        bs_src_hdr = [ws_bs_src.cell(1, c).value
+                                        bs_src_hdr = [ws_bs_src.cell(_GL_HDR_R, c).value
                                                       for c in range(1, ws_bs_src.max_column + 1)]
 
                                         for chk_label, mapped_row in _bs_check_labels:
                                             bs_match_r = None
-                                            for bri in range(2, ws_bs_src.max_row + 1):
+                                            for bri in range(_GL_DATA_R, ws_bs_src.max_row + 1):
                                                 lbl = str(ws_bs_src.cell(bri, 1).value or "").strip()
                                                 if lbl.lower() == chk_label.lower():
                                                     bs_match_r = bri
@@ -1072,12 +1080,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                                 c.number_format = NUM_FMT
                                                 c.font = Font(name="Arial", size=10)
                                             _diff_cfmt(wbs, d_r, _last_bs_ci)
-                                            br += 1
+                                            br += 2
 
                                     wbs.column_dimensions["A"].width = 42
                                     for ci in range(2, num_bs_mo + 2):
                                         wbs.column_dimensions[get_column_letter(ci)].width = 14
-                                    wbs.freeze_panes = "B2"
+                                    wbs.freeze_panes = "B6"
 
                             except Exception as _mpt_e:
                                 import traceback
@@ -1087,7 +1095,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ws_sum.column_dimensions["A"].width = 28
                         for ci in range(2, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
-                        ws_sum.freeze_panes = "B2"
+                        ws_sum.freeze_panes = "B6"
 
                         for _ws in wb.worksheets:
                             for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
@@ -1122,7 +1130,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             return []
                         ws = wb[tab_name]
                         return [[ws.cell(r, c).value for c in range(1, ws.max_column+1)]
-                                for r in range(1, ws.max_row+1)]
+                                for r in range(5, ws.max_row+1)]
 
                     is_sum = _read_tab_rows(wb_p, "IS GL Summary")
                     bs_bal = _read_tab_rows(wb_p, "BS Balances")
@@ -1132,16 +1140,20 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         from openpyxl.styles import Font as _Fp, PatternFill as _PFp, Alignment as _Alp
                         from openpyxl.utils import get_column_letter as _gclp
                         from datetime import datetime as _dtp, date as _datep
+                        _PORTAL_NAMES = {"Portal_IS_Flat": "Portal Income Statement",
+                                         "Portal_BS_Flat": "Portal Balance Sheet"}
                         for tab_name, rows in [("Portal_IS_Flat", p_is), ("Portal_BS_Flat", p_bs)]:
                             if not rows: continue
                             ws = wb_p.create_sheet(tab_name)
                             ws.sheet_view.showGridLines = False
+                            ws.cell(1, 1, company_name).font = _Fp(name="Arial", size=10, bold=True)
+                            ws.cell(2, 1, _PORTAL_NAMES.get(tab_name, tab_name)).font = _Fp(name="Arial", size=10)
                             hf = _Fp(name="Arial", size=10, bold=True, color="FFFFFF")
                             hb = _PFp("solid", fgColor="337E8D")
                             pf = _Fp(name="Arial", size=10)
                             for ci, v in enumerate(rows[0], 1):
-                                c = ws.cell(1, ci, v); c.font = hf; c.fill = hb
-                            for ri, row in enumerate(rows[1:], 2):
+                                c = ws.cell(5, ci, v); c.font = hf; c.fill = hb
+                            for ri, row in enumerate(rows[1:], 6):
                                 for ci, v in enumerate(row, 1):
                                     if isinstance(v, _dtp): v = v.date()
                                     c = ws.cell(ri, ci, v); c.font = pf
@@ -1159,7 +1171,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         if cl2 > mx: mx = cl2
                                     except: pass
                                 ws.column_dimensions[cl].width = min(mx + 4, 60)
-                            ws.freeze_panes = "A2"
+                            ws.freeze_panes = "A6"
 
                     for _ws in wb_p.worksheets:
                         for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):

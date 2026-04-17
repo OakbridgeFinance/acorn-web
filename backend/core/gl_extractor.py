@@ -1080,33 +1080,36 @@ def _fetch_ap_aging(alias, as_of_date, progress_fn):
 
 
 def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
-                       end_date: str):
-    """Write an AR Aging or AP Aging tab with title, subtitle, formatted headers, and data."""
+                       end_date: str, company_name: str = ""):
+    """Write an AR Aging or AP Aging tab with global header and formatted data."""
     from openpyxl.utils import get_column_letter
 
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
 
     if tab_name == "AR Aging":
-        title = "Accounts Receivable Aging"
+        report_name = "Accounts Receivable Aging"
     elif tab_name == "AP Aging":
-        title = "Accounts Payable Aging"
+        report_name = "Accounts Payable Aging"
     else:
-        title = tab_name
-
-    ws.cell(row=1, column=1, value=title).font = BOLD_FONT
-
-    if not rows or len(rows) < 2:
-        ws.cell(row=2, column=1, value="No data").font = PLAIN_FONT
-        return
+        report_name = tab_name
 
     dt = datetime.strptime(end_date, "%Y-%m-%d")
-    subtitle = f"As of {dt.strftime('%B %d, %Y')}"
-    ws.cell(row=2, column=1, value=subtitle).font = _font(italic=True)
+    as_of = f"As of {dt.strftime('%B %d, %Y')}"
+    _write_global_header(ws, company_name, report_name, as_of_date=as_of)
 
-    headers = rows[0]
+    if not rows or len(rows) < 2:
+        ws.cell(row=5, column=1, value="No data").font = PLAIN_FONT
+        return
+
+    headers = list(rows[0])
+    if tab_name == "AR Aging" and headers:
+        headers[0] = "Customer"
+    elif tab_name == "AP Aging" and headers:
+        headers[0] = "Vendor"
+
     for ci, val in enumerate(headers, 1):
-        c = ws.cell(row=4, column=ci, value=val)
+        c = ws.cell(row=5, column=ci, value=val)
         c.font = HDR_FONT
         c.fill = HDR_FILL
         c.alignment = _AL(horizontal="center" if ci > 1 else "left")
@@ -1114,10 +1117,6 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
     data_rows = rows[1:]
     last_idx = len(data_rows) - 1
 
-    # Pre-compute which non-total rows are group headers: a row is a group
-    # header if a later "Total {label}" subtotal row exists that matches its
-    # name. This lets us render the QBO section header bold with no indent
-    # and indent its child detail rows.
     labels_lower = [str(r[0] or "").strip().lower() if r else "" for r in data_rows]
     group_header_targets = set()
     for i, lbl in enumerate(labels_lower):
@@ -1127,7 +1126,7 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
                 group_header_targets.add(target)
 
     for ri, row in enumerate(data_rows):
-        excel_row = ri + 5  # data starts at row 5
+        excel_row = ri + 6
         label_lower = labels_lower[ri]
         is_total = label_lower.startswith("total")
         is_grand = (ri == last_idx and is_total)
@@ -1162,7 +1161,7 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
     for ci in range(2, len(headers) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 16
 
-    ws.freeze_panes = "A5"
+    ws.freeze_panes = "A6"
 
 
 # ── Validation (live formula version) ────────────────────────────────────────
@@ -1327,28 +1326,39 @@ NO_FILL    = _PF(fill_type=None)
 THIN       = _Sd(style="thin")
 DOUBLE     = _Sd(style="double")
 
-def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
-    """Write rows to a worksheet with formatted header, dates, and amounts."""
+_GH_ROWS = 4  # global header occupies rows 1-4; column headers at row 5, data at row 6
+
+
+def _write_global_header(ws, company_name, report_name, as_of_date=None):
+    ws.cell(1, 1, company_name).font = _font(bold=True)
+    ws.cell(2, 1, report_name).font = _font()
+    if as_of_date:
+        ws.cell(3, 1, as_of_date).font = _font(italic=True)
+
+def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
+                 company_name: str = "", report_name: str = ""):
+    """Write rows to a worksheet with global header, column header, and formatted data."""
     from openpyxl.styles import Alignment
 
     from openpyxl.utils import get_column_letter as _gcl_ws
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
+    _write_global_header(ws, company_name, report_name or tab_name)
     if not rows:
-        ws.cell(row=1, column=1, value="No data").font = PLAIN_FONT
+        ws.cell(row=5, column=1, value="No data").font = PLAIN_FONT
         return
 
     header = rows[0]
     acct_num_cols = {ci for ci, h in enumerate(header) if h in _ACCT_NUM_COLS}
 
     for ci, col_name in enumerate(header, 1):
-        c = ws.cell(row=1, column=ci, value=col_name)
+        c = ws.cell(row=5, column=ci, value=col_name)
         c.font      = HDR_FONT
         c.fill      = HDR_FILL
         c.alignment = _AL(horizontal="center" if ci > 1 else "left",
                           vertical="center")
 
-    for ri, row in enumerate(rows[1:], 2):
+    for ri, row in enumerate(rows[1:], 6):
         for ci, val in enumerate(row, 1):
             val = _to_date(val)
             c = ws.cell(row=ri, column=ci, value=val)
@@ -1359,11 +1369,13 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
                 c.number_format = "0" if (ci-1) in acct_num_cols else _ACCT_FMT
                 c.alignment     = _AL(horizontal="right")
 
-    # Autofit column widths
+    # Autofit column widths (skip global header rows)
     for col_cells in ws.columns:
         max_len = 0
         col_letter = _gcl_ws(col_cells[0].column)
         for cell in col_cells:
+            if cell.row < 5:
+                continue
             try:
                 cl = len(str(cell.value)) if cell.value is not None else 0
                 if cl > max_len: max_len = cl
@@ -1371,8 +1383,7 @@ def _write_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list]):
                 pass
         ws.column_dimensions[col_letter].width = min(max_len + 4, 60)
 
-    # Freeze header row
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = "A6"
 
 
 def _write_validation_sheet(
@@ -1389,6 +1400,7 @@ def _write_validation_sheet(
     bs_report_rows: list | None = None,
     is_summary_rows: list | None = None,
     bs_summary_rows: list | None = None,
+    company_name: str = "",
 ):
     """Write Validation tab with live Excel formulas.
 
@@ -1402,6 +1414,7 @@ def _write_validation_sheet(
 
     ws = wb.create_sheet("Validation")
     ws.sheet_view.showGridLines = False
+    _write_global_header(ws, company_name, "Validation")
 
     GREEN      = _PF("solid", fgColor="C6EFCE")
     RED        = _PF("solid", fgColor="FFC7CE")
@@ -1525,13 +1538,13 @@ def _write_validation_sheet(
 
     headers = ["Account", "Statement", "GL Value (Live)", "QBO Report Value", "Difference", "Status", "Notes"]
     for ci, h in enumerate(headers, 1):
-        c = ws.cell(row=1, column=ci, value=h)
+        c = ws.cell(row=5, column=ci, value=h)
         c.font = BOLD_WHITE
         c.fill = HEADER_BG
         c.alignment = Alignment(horizontal="center")
 
-    SUMMARY_START = 2
-    DETAIL_START  = 8
+    SUMMARY_START = 6
+    DETAIL_START  = 12
     ws.cell(row=DETAIL_START - 1, column=1, value="ACCOUNT DETAIL").font = BOLD
 
     current_row = DETAIL_START
@@ -1682,7 +1695,7 @@ def _write_validation_sheet(
     for ci, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(ci)].width = w
 
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = "A6"
     progress_fn(f"  Validation tab written: {len(is_accounts)} IS accounts, {len(bs_accounts)} BS accounts")
 
 
@@ -1692,24 +1705,29 @@ def _write_report_sheet(
     rows: list[list],
     report_type: str = "P&L",
     validation_rows: list[list] | None = None,
+    company_name: str = "",
 ):
     """Write a monthly P&L or Balance Sheet tab with formatting."""
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
+    report_name = "Profit & Loss" if report_type == "P&L" else "Balance Sheet"
+
     if not rows or len(rows) < 2:
         ws = wb.create_sheet(tab_name)
         ws.sheet_view.showGridLines = False
-        ws.cell(row=1, column=1, value="No data")
+        _write_global_header(ws, company_name, report_name)
+        ws.cell(row=5, column=1, value="No data")
         return
 
     ws = wb.create_sheet(tab_name)
     ws.sheet_view.showGridLines = False
+    _write_global_header(ws, company_name, report_name)
 
-    # Header row
+    # Column header row at row 5
     header = rows[0]
     for ci, val in enumerate(header, 1):
-        c = ws.cell(row=1, column=ci, value=val)
+        c = ws.cell(row=5, column=ci, value=val)
         c.font      = HDR_FONT
         c.fill      = HDR_FILL
         c.alignment = Alignment(horizontal="center" if ci > 1 else "left")
@@ -1720,7 +1738,7 @@ def _write_report_sheet(
     }
     SUBTOTAL_PREFIXES = ("total ", "net ")
 
-    for ri, row in enumerate(rows[1:], 2):
+    for ri, row in enumerate(rows[1:], 6):
         try:
             if not row:
                 continue
@@ -1786,7 +1804,7 @@ def _write_report_sheet(
         VAL_BG   = PatternFill("solid", fgColor="FFFDE7")
         VAL_BOLD = _font(bold=True)
 
-        separator_row  = len(rows) + 2
+        separator_row  = len(rows) + _GH_ROWS + 2
         ws.cell(row=separator_row, column=1, value="")
         val_header_row = separator_row + 1
         ws.cell(row=val_header_row, column=1, value="\u2500\u2500 GL CROSS-CHECK \u2500\u2500").font = VAL_BOLD
@@ -1819,7 +1837,7 @@ def _write_report_sheet(
     for ci in range(2, len(rows[0]) + 1):
         ws.column_dimensions[get_column_letter(ci)].width = 14
 
-    ws.freeze_panes = "B2"
+    ws.freeze_panes = "B6"
 
 
 def _write_dimension_sheet(
@@ -1971,6 +1989,7 @@ def generate_lite(
     include_gl_detail: bool = False,
     include_ar_aging: bool = False,
     include_ap_aging: bool = False,
+    company_name: str = "",
 ) -> dict:
     """
     Run Acorn Lite extraction — three pulls to one Excel file.
@@ -2077,13 +2096,13 @@ def generate_lite(
     is_summary_rows = _build_is_gl_summary(is_rows)
     bs_summary_rows = _build_bs_gl_summary(bs_rows)
 
-    # Write tabs in order — summary always, detail only if requested
-    _write_sheet(wb, "IS GL Summary", is_summary_rows)
-    _write_sheet(wb, "BS GL Summary", bs_summary_rows)
+    _cn = company_name
+    _write_sheet(wb, "IS GL Summary", is_summary_rows, company_name=_cn, report_name="Income Statement GL Summary")
+    _write_sheet(wb, "BS GL Summary", bs_summary_rows, company_name=_cn, report_name="Balance Sheet GL Summary")
     if include_gl_detail:
-        _write_sheet(wb, "IS GL Detail", is_rows)
-        _write_sheet(wb, "BS GL Detail", bs_rows)
-    _write_sheet(wb, "BS Balances", bal_rows)
+        _write_sheet(wb, "IS GL Detail", is_rows, company_name=_cn, report_name="Income Statement GL Detail")
+        _write_sheet(wb, "BS GL Detail", bs_rows, company_name=_cn, report_name="Balance Sheet GL Detail")
+    _write_sheet(wb, "BS Balances", bal_rows, company_name=_cn, report_name="Balance Sheet Balances")
 
     # ── AR / AP Aging tabs (optional) ─────────────────────────────────────
     if include_ar_aging:
@@ -2091,7 +2110,7 @@ def generate_lite(
             progress_fn("\n  Fetching AR Aging...")
             ar_rows = _fetch_ar_aging(alias, end_date, progress_fn)
             if ar_rows and len(ar_rows) > 1:
-                _write_aging_sheet(wb, "AR Aging", ar_rows, end_date)
+                _write_aging_sheet(wb, "AR Aging", ar_rows, end_date, company_name=_cn)
         except Exception as _ar_err:
             progress_fn(f"  WARNING: AR Aging failed — {_ar_err}")
 
@@ -2100,7 +2119,7 @@ def generate_lite(
             progress_fn("\n  Fetching AP Aging...")
             ap_rows = _fetch_ap_aging(alias, end_date, progress_fn)
             if ap_rows and len(ap_rows) > 1:
-                _write_aging_sheet(wb, "AP Aging", ap_rows, end_date)
+                _write_aging_sheet(wb, "AP Aging", ap_rows, end_date, company_name=_cn)
         except Exception as _ap_err:
             progress_fn(f"  WARNING: AP Aging failed — {_ap_err}")
 
@@ -2129,7 +2148,7 @@ def generate_lite(
         for ri, row in enumerate(pl_report_rows):
             label = str(row[0]).strip().lower()
             if label in ("net income", "net earnings"):
-                net_income_row_idx = ri + 1
+                net_income_row_idx = ri + 1 + _GH_ROWS
                 break
 
         if net_income_row_idx:
@@ -2170,8 +2189,8 @@ def generate_lite(
                     formula = 0.0
                 gl_ni_row.append(formula)
 
-            R1_pl = len(pl_report_rows) + 4
-            R2_pl = len(pl_report_rows) + 5
+            R1_pl = len(pl_report_rows) + 4 + _GH_ROWS
+            R2_pl = len(pl_report_rows) + 5 + _GH_ROWS
             diff_row_pl = ["Difference (should be zero)"] + [
                 f"={_gcl_pl(ci+2)}{R1_pl}-{_gcl_pl(ci+2)}{R2_pl}"
                 for ci in range(num_months_val)
@@ -2212,11 +2231,11 @@ def generate_lite(
         for ri, row in enumerate(bs_report_rows):
             label = str(row[0]).strip().lower()
             if "total assets" in label and total_assets_idx is None:
-                total_assets_idx = ri + 1
+                total_assets_idx = ri + 1 + _GH_ROWS
             if "total liabilities" in label and "equity" not in label and total_liab_idx is None:
-                total_liab_idx = ri + 1
+                total_liab_idx = ri + 1 + _GH_ROWS
             if "total equity" in label and total_equity_idx is None:
-                total_equity_idx = ri + 1
+                total_equity_idx = ri + 1 + _GH_ROWS
 
         ASSET_TYPES = ["Bank", "Accounts Receivable", "Other Current Asset",
                        "Fixed Asset", "Other Asset"]
@@ -2278,7 +2297,7 @@ def generate_lite(
         # vi=0: ta_report, vi=1: ta_gl, vi=2: ta_diff
         # vi=3: spacer,    vi=4: tl_report, vi=5: tl_gl, vi=6: tl_diff
         # vi=7: spacer,    vi=8: te_report, vi=9: te_gl, vi=10: te_diff
-        BASE = len(bs_report_rows) + 4
+        BASE = len(bs_report_rows) + 4 + _GH_ROWS
         R1 = BASE + 0;  R2 = BASE + 1   # assets
         R3 = BASE + 4;  R4 = BASE + 5   # liabilities
         R5 = BASE + 8;  R6 = BASE + 9   # equity
@@ -2304,9 +2323,9 @@ def generate_lite(
         ]
 
     _write_report_sheet(wb, "P&L", pl_report_rows, report_type="P&L",
-                        validation_rows=pl_validation_rows)
+                        validation_rows=pl_validation_rows, company_name=_cn)
     _write_report_sheet(wb, "Balance Sheet", bs_report_rows, report_type="Balance Sheet",
-                        validation_rows=bs_validation_rows)
+                        validation_rows=bs_validation_rows, company_name=_cn)
     _check_cancel(cancel_fn)
     progress_fn("\n  Fetching QBO report totals for validation...")
     qbo_is, qbo_bs = _fetch_qbo_report_totals(alias, start_date, end_date, progress_fn, coa_lookup=coa_lookup)
@@ -2325,6 +2344,7 @@ def generate_lite(
         bs_report_rows=bs_report_rows,
         is_summary_rows=is_summary_rows,
         bs_summary_rows=bs_summary_rows,
+        company_name=_cn,
     )
     if pct_fn: pct_fn(95)
 
