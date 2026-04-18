@@ -38,7 +38,7 @@
       <div id="sidebarPlanInfo" style="padding:8px 10px;font-size:11px;color:rgba(255,255,255,0.5);border-top:1px solid rgba(255,255,255,0.07);margin-bottom:4px;">
         <div style="font-weight:600;color:rgba(255,255,255,0.7);">Plan: <span id="sidebarPlanLabel"></span></div>
         <div id="sidebarCompanyCount" style="margin-top:2px;"></div>
-        <a id="sidebarUpgradeLink" href="/acorn#pricing" style="color:#C97D60;font-size:11px;font-weight:600;text-decoration:none;display:none;">Upgrade \u2192</a>
+        <a id="sidebarUpgradeLink" href="/acorn#pricing" style="color:#C97D60;font-size:11px;font-weight:600;text-decoration:none;display:none;">Upgrade →</a>
       </div>
       <button class="signout-btn" onclick="signOut()">Sign Out</button>
     </div>
@@ -172,7 +172,7 @@
             </select>
           </div>
           <div id="dimUpgradeRow" style="display:none;font-size:12px;color:#C97D60;margin-top:-4px;margin-bottom:8px;">
-            Class/Location reporting is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade \u2192</a>
+            Class/Location reporting is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
@@ -180,15 +180,16 @@
 
           <div id="glDetailRow" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
             <input type="checkbox" id="includeGLDetail" style="width:14px;height:14px;cursor:pointer;">
-            <label for="includeGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
+            <label for="includeGLDetail" id="labelGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
               Include full GL detail tabs
             </label>
+            <span id="glDetailProBadge" style="font-size:0.7rem;color:#999;display:none;">(Pro)</span>
             <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
               (GL data is summarized by default)
             </span>
           </div>
           <div id="glDetailUpgrade" style="display:none;font-size:12px;color:#C97D60;margin-top:6px;">
-            Full GL detail is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade \u2192</a>
+            Full GL detail is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -450,6 +451,21 @@ function _checkDateRange() {
   }
   _hideDateWarning();
   return true;
+}
+const _LONG_PERIODS = ['Year to Date', 'Prior Full Year', 'Trailing 12 Months'];
+function _applyPeriodGating() {
+  const sel = $('litePeriod');
+  if (!sel) return;
+  for (const opt of sel.options) {
+    const base = opt.textContent.replace(/\s*\(Pro\)$/, '');
+    if (userPlan === 'basic' && _LONG_PERIODS.includes(base)) {
+      opt.textContent = base + ' (Pro)';
+      opt.style.color = '#999';
+    } else {
+      opt.textContent = base;
+      opt.style.color = '';
+    }
+  }
 }
 function _showDateWarning() {
   let w = $('dateRangeWarning');
@@ -798,7 +814,7 @@ async function loadMappingSelection(realmId) {
         '<div style="font-size:13px;color:var(--text-light);line-height:1.6">' +
         'No custom mappings configured \u2014 QBO default account structure.</div>' +
         '<div style="margin-top:6px"><a href="#" onclick="showMappingPage()" ' +
-        'style="color:var(--accent);font-size:13px">Set up custom Account Mapping \u2192</a></div>';
+        'style="color:var(--accent);font-size:13px">Set up custom Account Mapping →</a></div>';
       return;
     }
     body.innerHTML =
@@ -812,7 +828,7 @@ async function loadMappingSelection(realmId) {
         '</label>'
       ).join('') +
       '<div style="margin-top:8px"><a href="#" onclick="showMappingPage()" ' +
-      'style="color:var(--accent);font-size:12px">Manage mappings \u2192</a></div>';
+      'style="color:var(--accent);font-size:12px">Manage mappings →</a></div>';
   } catch (e) {
     body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Could not load mappings.</div>';
   }
@@ -1867,16 +1883,40 @@ document.addEventListener('DOMContentLoaded', () => {
   // Apply plan-based visibility
   const portalRow = $('portalDataRow');
   if (portalRow) portalRow.style.display = hasFeature('portal') ? 'flex' : 'none';
+
+  // GL Detail: show grayed out for basic, enabled for pro+
   const glDetailRow = $('glDetailRow');
-  if (glDetailRow) glDetailRow.style.display = hasFeature('gl_detail') ? 'flex' : 'none';
+  const glDetailCb = $('includeGLDetail');
   const glDetailUpgrade = $('glDetailUpgrade');
-  if (glDetailUpgrade) glDetailUpgrade.style.display = hasFeature('gl_detail') ? 'none' : 'block';
+  if (glDetailRow) glDetailRow.style.display = 'flex';
+  const glDetailBadge = $('glDetailProBadge');
+  if (!hasFeature('gl_detail')) {
+    if (glDetailCb) { glDetailCb.disabled = true; glDetailCb.checked = false; }
+    if (glDetailRow) glDetailRow.style.color = '#999';
+    if (glDetailBadge) glDetailBadge.style.display = '';
+    if (glDetailUpgrade) glDetailUpgrade.style.display = 'block';
+  } else {
+    if (glDetailCb) glDetailCb.disabled = false;
+    if (glDetailRow) glDetailRow.style.color = '';
+    if (glDetailBadge) glDetailBadge.style.display = 'none';
+    if (glDetailUpgrade) glDetailUpgrade.style.display = 'none';
+  }
+
+  // Class/Location: show grayed out for basic, enabled for pro+
+  const dimRow = $('liteGlDimRow');
+  const dimSel = $('liteGlDimension');
+  const dimUpgrade = $('dimUpgradeRow');
+  if (dimRow) dimRow.style.display = '';
+  if (!hasFeature('class_location')) {
+    if (dimSel) { dimSel.disabled = true; dimSel.value = 'none'; dimSel.style.color = '#999'; }
+    if (dimUpgrade) dimUpgrade.style.display = 'block';
+  } else {
+    if (dimSel) { dimSel.disabled = false; dimSel.style.color = ''; }
+    if (dimUpgrade) dimUpgrade.style.display = 'none';
+  }
+
   const mappingCard = $('mappingSelectionCard');
   if (mappingCard) mappingCard.style.display = hasFeature('mapping') ? '' : 'none';
-  const dimRow = $('liteGlDimRow');
-  const dimUpgrade = $('dimUpgradeRow');
-  if (dimRow) dimRow.style.display = hasFeature('class_location') ? '' : 'none';
-  if (dimUpgrade) dimUpgrade.style.display = hasFeature('class_location') ? 'none' : 'block';
 
   // Plan display in sidebar
   const planLabel = $('sidebarPlanLabel');
@@ -1887,6 +1927,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Date range validation for basic
   $('liteDateStart')?.addEventListener('change', _checkDateRange);
   $('liteDateEnd')?.addEventListener('change', _checkDateRange);
+  _applyPeriodGating();
 
   // Date validation listeners
   $('liteDateStart')?.addEventListener('change', function() {
