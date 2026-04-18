@@ -906,13 +906,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     rr["_GP"] = gp
                                     pr += 1  # blank row before next section
 
-                                    # Remaining sections
+                                    # S&M + Operating Expenses
                                     _write_sec("Sales & Marketing")
                                     _write_sec("Operating Expenses")
-                                    _write_sec("Other Income")
-                                    _write_sec("Other Expense")
-                                    _write_sec("Other")
 
+                                    # Net Operating Income immediately after OpEx
                                     if any(k in rr for k in SM):
                                         cm = _calc("Contribution Margin", ["_GP"], SM)
                                         rr["_CM"] = cm
@@ -920,6 +918,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         rr["_CM"] = gp
                                     noi = _calc("Net Operating Income", ["_CM"], OPX)
                                     rr["_NOI"] = noi
+                                    pr += 1
+
+                                    # Other Income / Expense
+                                    _write_sec("Other Income")
+                                    _write_sec("Other Expense")
+                                    _write_sec("Other")
+
+                                    # Net Income at the bottom
                                     ni_pl_row = _calc("Net Income", ["_NOI"] + OI, OE,
                                                       top_b=True, dbl_b=True)
 
