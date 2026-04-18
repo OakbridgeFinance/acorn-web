@@ -1441,6 +1441,7 @@ function getGLAccountName(displayName) {
 function _mapsAssignedSet() {
   const s = new Set();
   for (const g of mapsState.groups) {
+    if (g._fixed) continue;
     for (const a of (g.accounts || [])) {
       const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
       s.add(dn);
