@@ -19,6 +19,10 @@
     </div>
     <h2 id="authTitle">Sign in to Acorn</h2>
 
+    <div id="signupSuccess" style="display:none;background:rgba(5,150,105,0.1);border:1px solid rgba(5,150,105,0.2);color:#059669;padding:12px;border-radius:8px;font-size:13px;font-weight:500;margin-bottom:16px;font-family:'Source Sans 3',sans-serif;">
+      Account created! Sign in below.
+    </div>
+
     <div class="login-field">
       <label for="email">Email</label>
       <input type="email" id="email" placeholder="you@company.com" />
@@ -55,6 +59,7 @@ function toggleMode() {
   document.getElementById('toggleLink').textContent = isSignup ? 'Sign in →' : 'Create one →';
   document.getElementById('confirmField').style.display = isSignup ? '' : 'none';
   document.getElementById('authError').style.display = 'none';
+  document.getElementById('signupSuccess').style.display = 'none';
 }
 
 async function doAuth() {
@@ -104,11 +109,16 @@ async function doAuth() {
     }
 
     if (isSignup) {
-      errEl.textContent = data.message || 'Account created! Check your email to verify, then sign in.';
-      errEl.style.color = '#276221';
-      errEl.style.display = 'block';
+      // Switch to sign-in mode with credentials pre-filled
+      isSignup = false;
+      document.getElementById('authTitle').textContent = 'Sign in to Acorn';
+      document.getElementById('confirmField').style.display = 'none';
+      document.getElementById('toggleText').textContent = "Don't have an account?";
+      document.getElementById('toggleLink').textContent = 'Create one →';
+      document.getElementById('signupSuccess').style.display = 'block';
+      errEl.style.display = 'none';
       btn.disabled = false;
-      btn.textContent = 'Create Account';
+      btn.textContent = 'Sign In';
       return;
     }
 
