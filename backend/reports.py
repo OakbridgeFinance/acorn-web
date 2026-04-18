@@ -272,32 +272,33 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             ws_ref.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
                             ws_ref.cell(2, 1, "Mapping Reference").font = Font(name="Arial", size=10)
 
-                            # Collect unique accounts from IS GL Summary and BS Balances
-                            _ref_accounts = {}  # (acct_name) -> {type, stmt}
-                            for _tab, _stmt in [("IS GL Summary", "IS"), ("BS Balances", "BS")]:
-                                if _tab not in wb.sheetnames:
+                            # Fetch full COA from QBO (all accounts, not just those with activity)
+                            from qbo_client import fetch_accounts as _fetch_coa
+                            _IS_TYPES = {"Income", "Expense", "Cost of Goods Sold", "Other Income", "Other Expense"}
+                            _BS_TYPES = {"Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset",
+                                         "Other Asset", "Accounts Payable", "Credit Card", "Other Current Liability",
+                                         "Long Term Liability", "Equity"}
+                            _coa_raw = _fetch_coa(realm_id) or []
+                            _ref_accounts = {}
+                            for _a in _coa_raw:
+                                _name = str(_a.get("FullyQualifiedName", _a.get("Name", "")) or "").strip()
+                                _atype = str(_a.get("AccountType", "") or "")
+                                _anum = str(_a.get("AcctNum", "") or "").strip()
+                                _display = f"{_anum} {_name}".strip() if _anum else _name
+                                if not _name:
                                     continue
-                                _ws = wb[_tab]
-                                _h = [_ws.cell(_GL_HDR_R, c).value for c in range(1, _ws.max_column + 1)]
-                                _ai = None
-                                for _cn in ("Account Name", "Account"):
-                                    if _cn in _h:
-                                        _ai = _h.index(_cn) + 1
-                                        break
-                                _ti = (_h.index("Account Type") + 1) if "Account Type" in _h else None
-                                if not _ai:
-                                    continue
-                                for _ri in range(_GL_DATA_R, _ws.max_row + 1):
-                                    _an = _ws.cell(_ri, _ai).value
-                                    if not _an or str(_an).strip() in _ref_accounts:
-                                        continue
-                                    _at = _ws.cell(_ri, _ti).value if _ti else ""
-                                    _ref_accounts[str(_an).strip()] = {"type": str(_at or ""), "stmt": _stmt}
+                                if _atype in _IS_TYPES:
+                                    _stmt = "IS"
+                                elif _atype in _BS_TYPES:
+                                    _stmt = "BS"
+                                else:
+                                    _stmt = ""
+                                _ref_accounts[_name] = {"type": _atype, "stmt": _stmt, "display": _display}
 
-                            # Sort: IS first, then BS; within each by type then name
+                            # Sort: IS first, then BS; within each by type then display name
                             _sorted_accts = sorted(
                                 _ref_accounts.items(),
-                                key=lambda x: (0 if x[1]["stmt"] == "IS" else 1, x[1]["type"], x[0])
+                                key=lambda x: (0 if x[1]["stmt"] == "IS" else 1 if x[1]["stmt"] == "BS" else 2, x[1]["type"], x[1].get("display", x[0]))
                             )
 
                             # Build lookups for each map
@@ -319,13 +320,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             # Data rows
                             _rr = 6
                             for acct_name, info in _sorted_accts:
-                                ws_ref.cell(_rr, _DC, acct_name).font = Font(name="Arial", size=10)
+                                _disp = info.get("display", acct_name)
+                                ws_ref.cell(_rr, _DC, _disp).font = Font(name="Arial", size=10)
                                 ws_ref.cell(_rr, _DC + 1, info["type"]).font = Font(name="Arial", size=10)
                                 ws_ref.cell(_rr, _DC + 2, info["stmt"]).font = Font(name="Arial", size=10)
                                 for mi, (mn, lkp) in enumerate(_map_lookups):
                                     gc = _DC + 3 + mi * 2
                                     sc = _DC + 4 + mi * 2
-                                    match = lkp.get(acct_name)
+                                    match = lkp.get(acct_name) or lkp.get(_disp)
                                     if match:
                                         ws_ref.cell(_rr, gc, match[0]).font = Font(name="Arial", size=10)
                                         ws_ref.cell(_rr, sc, match[1]).font = Font(name="Arial", size=10)
