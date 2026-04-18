@@ -19,8 +19,38 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 SUPABASE_URL         = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
+# ── Concurrency limits ───────────────────────────────────────────────────────
+# Global cap on simultaneous report generations. Each report is a multi-minute
+# QBO pull + Excel build; running too many at once starves the process.
+_MAX_CONCURRENT_REPORTS = 3
+_report_semaphore = threading.BoundedSemaphore(_MAX_CONCURRENT_REPORTS)
+
+
+class CancelledJob(Exception):
+    """Raised inside the worker when the job row has been marked failed (cancel)."""
+
+
 def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+def _job_is_cancelled(job_id: str) -> bool:
+    """Return True if the job row has been marked failed (i.e. the cancel
+    endpoint set it to 'failed'). Any DB error returns False — we don't want
+    transient Supabase blips to kill a legitimate in-progress job."""
+    try:
+        row = get_job(job_id)
+        if not row:
+            return True
+        return row.get("status") == "failed"
+    except Exception:
+        return False
+
+
+def _check_cancel(job_id: str) -> None:
+    """Raise CancelledJob if the job has been cancelled via the cancel endpoint."""
+    if _job_is_cancelled(job_id):
+        raise CancelledJob()
 
 
 def _parse_report_dates(start_date: str, end_date: str) -> tuple[date, date]:
@@ -70,11 +100,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                    include_portal_data: bool = False,
                    include_ar_aging: bool = False,
                    include_ap_aging: bool = False):
-    """Run in a background thread — fetches QBO data and generates Excel file."""
+    """Run in a background thread — fetches QBO data and generates Excel file.
+
+    Cancellation: checks the job row status between major steps. If the row has
+    been set to 'failed' by the cancel endpoint, raises CancelledJob and bails.
+    """
     try:
+        _check_cancel(job_id)
         update_job(job_id, status="running")
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent / "core"))
         from gl_extractor import generate_lite
         supabase = get_supabase()
         token_result = supabase.table("qbo_tokens").select(
@@ -87,9 +120,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         company_name  = tokens.get("company_name", "") or realm_id
         access_token  = tokens["access_token"]
         refresh_token = tokens["refresh_token"]
-        logger.info(f"company_name from tokens: '{company_name}'")
 
-        from datetime import datetime, timedelta
         import re as _re
 
         # Always refresh QBO token before running
@@ -120,20 +151,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     "expires_at":    new_expiry,
                     "updated_at":    datetime.utcnow().isoformat(),
                 }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
-                logger.info("QBO token refreshed successfully")
             else:
                 logger.warning(f"QBO token refresh failed: {refresh_resp.status_code}")
         except Exception as _rfe:
             logger.warning(f"QBO token refresh error: {_rfe}")
 
-        import qbo_client
-        qbo_client.set_override_tokens({
-            "realm_id":      realm_id,
-            "access_token":  access_token,
-            "refresh_token": refresh_token,
-        })
-        qbo_client.get_environment = lambda: "production"
-        logger.info(f"Override tokens set for realm_id={realm_id}")
+        _check_cancel(job_id)
 
         clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
         file_name  = f"{clean_name}_{start_date[:7]}_{end_date[:7]}.xlsx"
@@ -145,7 +168,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = generate_lite(
-                alias=realm_id,
+                access_token=access_token,
+                realm_id=realm_id,
                 start_date=start_date,
                 end_date=end_date,
                 output_mode="new",
@@ -153,12 +177,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 file_name=file_name,
                 dimension=dimension,
                 progress_fn=progress_fn,
+                cancel_fn=lambda: _job_is_cancelled(job_id),
                 include_gl_detail=include_gl_detail,
                 include_ar_aging=include_ar_aging,
                 include_ap_aging=include_ap_aging,
                 company_name=company_name,
             )
             file_path = result["path"]
+            _check_cancel(job_id)
 
             # ── Append mapping columns ────────────────────────────────
             if selected_maps:
@@ -278,7 +304,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                             _BS_TYPES = {"Bank", "Accounts Receivable", "Other Current Asset", "Fixed Asset",
                                          "Other Asset", "Accounts Payable", "Credit Card", "Other Current Liability",
                                          "Long Term Liability", "Equity"}
-                            _coa_raw = _fetch_coa(realm_id) or []
+                            _coa_raw = _fetch_coa(access_token=access_token, realm_id=realm_id) or []
                             _ref_accounts = {}
                             for _a in _coa_raw:
                                 _name = str(_a.get("FullyQualifiedName", _a.get("Name", "")) or "").strip()
@@ -1630,6 +1656,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 logger.warning(f"Workbook restructuring failed: {_rs_err}\n{traceback.format_exc()}")
                 progress_fn(f"  WARNING: Restructuring failed — {_rs_err}")
 
+            _check_cancel(job_id)
+
             # Upload to Supabase storage
             storage_path = f"{user_id}/{job_id}/{file_name}"
             with open(file_path, "rb") as f:
@@ -1638,21 +1666,23 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     f.read(),
                     {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
                 )
-            url_result = supabase.storage.from_("reports").create_signed_url(
-                storage_path, 3600
-            )
-            file_url = (url_result.get("signedURL")
-                        or url_result.get("signedUrl")
-                        or url_result.get("signed_url", ""))
-            logger.info(f"Signed URL keys: {list(url_result.keys())}, url length: {len(file_url)}")
-            update_job(job_id, status="complete", file_url=file_url)
+            # Store the storage path in file_url (no signed URL — download
+            # goes through the authenticated /api/reports/download/<job_id>
+            # endpoint, which re-reads this path).
+            update_job(job_id, status="complete", file_url=storage_path)
 
+    except CancelledJob:
+        logger.info(f"Report job {job_id} cancelled — worker exiting")
+        # Leave status as 'failed' — the cancel endpoint already set it.
     except Exception as e:
-        update_job(job_id, status="failed", error=str(e))
+        # gl_extractor.LiteCancelled (raised when cancel_fn returns True) is
+        # also caught here. Don't overwrite a cancel status with a
+        # downstream exception.
+        if not _job_is_cancelled(job_id):
+            update_job(job_id, status="failed", error=str(e))
     finally:
         try:
-            logger.info("Clearing override tokens in finally block")
-            qbo_client.set_override_tokens(None)
+            _report_semaphore.release()
         except Exception:
             pass
 
@@ -1662,7 +1692,16 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
     s, e = _parse_report_dates(body.start_date, body.end_date)
 
-    plan = (user.app_metadata or {}).get("plan", "basic")
+    plan   = (user.app_metadata or {}).get("plan", "basic")
+    uid    = str(user.id)
+    sb     = get_supabase()
+
+    # Verify the caller owns this realm_id before touching anything else.
+    owned = sb.table("qbo_tokens").select("realm_id").eq(
+        "user_id", uid
+    ).eq("realm_id", body.realm_id).execute()
+    if not owned.data:
+        raise HTTPException(status_code=404, detail="QBO connection not found")
 
     # Date range limit for basic plan (92 days ≈ 3 months)
     if plan == "basic" and (e - s).days > 92:
@@ -1681,23 +1720,51 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
         body.include_portal_data = False
     # admin: no restrictions
 
-    job = create_job(
-        user_id=str(user.id),
-        realm_id=body.realm_id,
-        start_date=body.start_date,
-        end_date=body.end_date,
-        dimension=body.dimension,
-    )
-    thread = threading.Thread(
-        target=run_report_job,
-        args=(job["id"], str(user.id), body.realm_id,
-              body.start_date, body.end_date, body.dimension,
-              body.selected_maps, body.include_gl_detail,
-              body.include_portal_data,
-              body.include_ar_aging, body.include_ap_aging),
-        daemon=True,
-    )
-    thread.start()
+    # Per-user limit: only one running/pending job at a time.
+    existing = sb.table("jobs").select("id, status").eq(
+        "user_id", uid
+    ).in_("status", ["pending", "running"]).limit(1).execute()
+    if existing.data:
+        raise HTTPException(
+            status_code=409,
+            detail="A report is already generating for your account. "
+                   "Wait for it to finish or cancel it before starting another.",
+        )
+
+    # Global concurrency cap. Acquire a slot up-front so we can reject with
+    # 429 before spawning a thread; the worker releases in its finally.
+    if not _report_semaphore.acquire(blocking=False):
+        raise HTTPException(
+            status_code=429,
+            detail="Server busy — please try again in a moment.",
+        )
+
+    try:
+        job = create_job(
+            user_id=uid,
+            realm_id=body.realm_id,
+            start_date=body.start_date,
+            end_date=body.end_date,
+            dimension=body.dimension,
+        )
+        thread = threading.Thread(
+            target=run_report_job,
+            args=(job["id"], uid, body.realm_id,
+                  body.start_date, body.end_date, body.dimension,
+                  body.selected_maps, body.include_gl_detail,
+                  body.include_portal_data,
+                  body.include_ar_aging, body.include_ap_aging),
+            daemon=True,
+        )
+        thread.start()
+    except Exception:
+        # Spawn failed before the worker could claim the slot — release it.
+        try:
+            _report_semaphore.release()
+        except Exception:
+            pass
+        raise
+
     return {"job_id": job["id"], "status": "pending"}
 
 

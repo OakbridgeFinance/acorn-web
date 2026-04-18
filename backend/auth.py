@@ -67,20 +67,36 @@ def _effective_plan(app_meta: dict) -> tuple[str, bool, int]:
     return (plan, False, 0)
 
 
-# ── Rate limiting for signup ─────────────────────────────────────────────────
+# ── Rate limiting ────────────────────────────────────────────────────────────
+# Per-IP in-memory limits. Adequate for single-worker deployments; move to
+# Redis/DB if we ever scale out beyond one process.
 
 _signup_attempts: dict[str, list[float]] = defaultdict(list)
-_SIGNUP_LIMIT = 5
+_SIGNUP_LIMIT  = 5
 _SIGNUP_WINDOW = 3600  # 1 hour
+
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_LIMIT  = 5
+_LOGIN_WINDOW = 300  # 5 minutes
 
 
 def _check_signup_rate(ip: str):
     now = time.time()
-    attempts = _signup_attempts[ip]
-    _signup_attempts[ip] = [t for t in attempts if now - t < _SIGNUP_WINDOW]
+    _signup_attempts[ip] = [t for t in _signup_attempts[ip] if now - t < _SIGNUP_WINDOW]
     if len(_signup_attempts[ip]) >= _SIGNUP_LIMIT:
         raise HTTPException(status_code=429, detail="Too many signup attempts. Try again later.")
     _signup_attempts[ip].append(now)
+
+
+def _check_login_rate(ip: str):
+    now = time.time()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_WINDOW]
+    if len(_login_attempts[ip]) >= _LOGIN_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again in a few minutes.",
+        )
+    _login_attempts[ip].append(now)
 
 
 # ── Auth dependency ──────────────────────────────────────────────────────────
@@ -143,8 +159,11 @@ def signup(body: AuthRequest, request: Request):
 
 
 @router.post("/login")
-def login(body: AuthRequest):
+def login(body: AuthRequest, request: Request):
     """Log in and return a session token with plan/trial info."""
+    client_ip = request.client.host if request.client else "unknown"
+    _check_login_rate(client_ip)
+
     supabase = get_supabase_anon()
     try:
         result = supabase.auth.sign_in_with_password({
