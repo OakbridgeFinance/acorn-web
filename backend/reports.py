@@ -262,6 +262,90 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         max_len = max(max_len, len(str(cv)))
                                 ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 4, 60)
 
+                        # ── Mapping Reference tab ──────────────────────────
+                        try:
+                            if "Mapping Reference" in wb.sheetnames:
+                                del wb["Mapping Reference"]
+                            ws_ref = wb.create_sheet("Mapping Reference")
+                            ws_ref.sheet_view.showGridLines = False
+                            ws_ref.column_dimensions["A"].width = 0.63
+                            ws_ref.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
+                            ws_ref.cell(2, 1, "Mapping Reference").font = Font(name="Arial", size=10)
+
+                            # Collect unique accounts from IS GL Summary and BS Balances
+                            _ref_accounts = {}  # (acct_name) -> {type, stmt}
+                            for _tab, _stmt in [("IS GL Summary", "IS"), ("BS Balances", "BS")]:
+                                if _tab not in wb.sheetnames:
+                                    continue
+                                _ws = wb[_tab]
+                                _h = [_ws.cell(_GL_HDR_R, c).value for c in range(1, _ws.max_column + 1)]
+                                _ai = None
+                                for _cn in ("Account Name", "Account"):
+                                    if _cn in _h:
+                                        _ai = _h.index(_cn) + 1
+                                        break
+                                _ti = (_h.index("Account Type") + 1) if "Account Type" in _h else None
+                                if not _ai:
+                                    continue
+                                for _ri in range(_GL_DATA_R, _ws.max_row + 1):
+                                    _an = _ws.cell(_ri, _ai).value
+                                    if not _an or str(_an).strip() in _ref_accounts:
+                                        continue
+                                    _at = _ws.cell(_ri, _ti).value if _ti else ""
+                                    _ref_accounts[str(_an).strip()] = {"type": str(_at or ""), "stmt": _stmt}
+
+                            # Sort: IS first, then BS; within each by type then name
+                            _sorted_accts = sorted(
+                                _ref_accounts.items(),
+                                key=lambda x: (0 if x[1]["stmt"] == "IS" else 1, x[1]["type"], x[0])
+                            )
+
+                            # Build lookups for each map
+                            _map_lookups = []
+                            for m in maps_to_apply:
+                                _map_lookups.append((m.get("map_name", ""), build_lookup(m)))
+
+                            # Headers at row 5
+                            _ref_headers = ["QBO Account", "Account Type", "Statement"]
+                            for mn, _ in _map_lookups:
+                                _ref_headers.append(f"{mn} \u2014 Group")
+                                _ref_headers.append(f"{mn} \u2014 Section")
+
+                            for ci, h in enumerate(_ref_headers, _DC):
+                                c = ws_ref.cell(5, ci, h)
+                                c.font = HDR_FONT; c.fill = HDR_FILL
+                                c.alignment = Alignment(horizontal="center" if ci > _DC else "left")
+
+                            # Data rows
+                            _rr = 6
+                            for acct_name, info in _sorted_accts:
+                                ws_ref.cell(_rr, _DC, acct_name).font = Font(name="Arial", size=10)
+                                ws_ref.cell(_rr, _DC + 1, info["type"]).font = Font(name="Arial", size=10)
+                                ws_ref.cell(_rr, _DC + 2, info["stmt"]).font = Font(name="Arial", size=10)
+                                for mi, (mn, lkp) in enumerate(_map_lookups):
+                                    gc = _DC + 3 + mi * 2
+                                    sc = _DC + 4 + mi * 2
+                                    match = lkp.get(acct_name)
+                                    if match:
+                                        ws_ref.cell(_rr, gc, match[0]).font = Font(name="Arial", size=10)
+                                        ws_ref.cell(_rr, sc, match[1]).font = Font(name="Arial", size=10)
+                                    else:
+                                        ws_ref.cell(_rr, gc, "Unmapped").font = Font(name="Arial", size=10, color="999999")
+                                _rr += 1
+
+                            # Autofit columns
+                            for ci in range(_DC, _DC + len(_ref_headers)):
+                                mx = 0
+                                for r in range(5, _rr):
+                                    v = ws_ref.cell(r, ci).value
+                                    if v is not None:
+                                        mx = max(mx, len(str(v)))
+                                ws_ref.column_dimensions[get_column_letter(ci)].width = min(max(mx + 4, 15), 40)
+
+                            ws_ref.freeze_panes = "A6"
+                        except Exception as _ref_err:
+                            logger.warning(f"Mapping Reference tab failed: {_ref_err}")
+
                         # ── Map Summary tab ────────────────────────────────
                         if "Map Summary" in wb.sheetnames:
                             del wb["Map Summary"]
@@ -1313,6 +1397,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     _make_divider("Data Validation")
                     ordered.extend(val_tabs)
 
+                # Mapping Reference (after validation, before portal)
+                if "Mapping Reference" in wb_fin.sheetnames:
+                    ordered.append("Mapping Reference")
+
                 # Portal Data section
                 portal_tabs = []
                 for t in ["Portal_IS_Flat", "Portal_BS_Flat"]:
@@ -1474,8 +1562,9 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     "Portal_IS_Flat": "Portal Income Statement",
                     "Portal_BS_Flat": "Portal Balance Sheet",
                 }
-                _sec_labels = ["QBO Reports", "Mapped Reports", "Flat Files", "Validation", "Portal Data"]
-                _sec_lists  = [qbo_tabs, mapped_tabs, flat_tabs, val_tabs, portal_tabs]
+                _ref_tabs = ["Mapping Reference"] if "Mapping Reference" in wb_fin.sheetnames else []
+                _sec_labels = ["QBO Reports", "Mapped Reports", "Mapping Reference", "Flat Files", "Validation", "Portal Data"]
+                _sec_lists  = [qbo_tabs, mapped_tabs, _ref_tabs, flat_tabs, val_tabs, portal_tabs]
                 for si, (sl, st) in enumerate(zip(_sec_labels, _sec_lists)):
                     if not st:
                         continue
