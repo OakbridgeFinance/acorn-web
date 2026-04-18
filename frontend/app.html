@@ -38,7 +38,7 @@
       <div id="sidebarPlanInfo" style="padding:8px 10px;font-size:11px;color:rgba(255,255,255,0.5);border-top:1px solid rgba(255,255,255,0.07);margin-bottom:4px;">
         <div style="font-weight:600;color:rgba(255,255,255,0.7);">Plan: <span id="sidebarPlanLabel"></span></div>
         <div id="sidebarCompanyCount" style="margin-top:2px;"></div>
-        <a id="sidebarUpgradeLink" href="/acorn#pricing" style="color:#C97D60;font-size:11px;font-weight:600;text-decoration:none;display:none;">Upgrade →</a>
+        <a id="sidebarUpgradeLink" href="#" style="color:#C97D60;font-size:11px;font-weight:600;text-decoration:none;display:none;">Upgrade →</a>
       </div>
       <button class="signout-btn" onclick="signOut()">Sign Out</button>
     </div>
@@ -176,7 +176,7 @@
             </select>
           </div>
           <div id="dimUpgradeRow" style="display:none;font-size:12px;color:#C97D60;margin-top:-4px;margin-bottom:8px;">
-            Class/Location reporting is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
+            Class/Location reporting is available on Pro. <a class="upgrade-link" href="#" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
@@ -193,7 +193,7 @@
             </span>
           </div>
           <div id="glDetailUpgrade" style="display:none;font-size:12px;color:#C97D60;margin-top:6px;">
-            Full GL detail is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
+            Full GL detail is available on Pro. <a class="upgrade-link" href="#" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -440,6 +440,11 @@ const PLAN_FEATURES = {
   admin:   ['mapping', 'gl_detail', 'class_location', 'portal'],
 };
 const COMPANY_LIMITS = { basic: 1, pro: 5, plus: 25, admin: 9999 };
+const _UPGRADE_URLS = {
+  basic: 'https://buy.stripe.com/14A3cx5PLbLg5nF8ts6AM00',
+  pro:   'https://buy.stripe.com/3cIdRb1zv8z43fxgZY6AM01',
+};
+function _upgradeUrl() { return _UPGRADE_URLS[userPlan] || ''; }
 let userPlan = localStorage.getItem('acorn_plan') || 'basic';
 function hasFeature(name) {
   return (PLAN_FEATURES[userPlan] || []).includes(name);
@@ -457,28 +462,29 @@ function _showTrialBanner() {
   const isTrial = localStorage.getItem('acorn_trial') === 'true';
   const days = parseInt(localStorage.getItem('acorn_trial_days') || '0', 10);
   if (!isTrial && userPlan !== 'basic') { banner.style.display = 'none'; return; }
+  const _uUrl = _upgradeUrl();
   if (isTrial && days >= 5) {
     banner.style.background = 'rgba(41,161,175,0.08)';
     banner.style.color = '#07393C';
     banner.style.border = '1px solid rgba(41,161,175,0.2)';
-    text.innerHTML = 'You\u2019re on a 7-day Pro trial. ' + days + ' days remaining. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>';
+    text.innerHTML = 'You\u2019re on a 7-day Pro trial. ' + days + ' days remaining. <a href="' + _uUrl + '" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>';
   } else if (isTrial && days >= 2) {
     banner.style.background = 'rgba(201,125,96,0.08)';
     banner.style.color = '#92400E';
     banner.style.border = '1px solid rgba(201,125,96,0.2)';
-    text.innerHTML = 'Your Pro trial ends in ' + days + ' days. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade now →</a>';
+    text.innerHTML = 'Your Pro trial ends in ' + days + ' days. <a href="' + _uUrl + '" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade now →</a>';
   } else if (isTrial && days >= 0) {
     banner.style.background = 'rgba(204,0,0,0.06)';
     banner.style.color = '#CC0000';
     banner.style.border = '1px solid rgba(204,0,0,0.15)';
-    text.innerHTML = 'Your Pro trial ends today! <a href="/acorn#pricing" style="color:#CC0000;font-weight:600;text-decoration:underline;">Upgrade to keep Pro features →</a>';
+    text.innerHTML = 'Your Pro trial ends today! <a href="' + _uUrl + '" style="color:#CC0000;font-weight:600;text-decoration:underline;">Upgrade to keep Pro features →</a>';
   } else if (userPlan === 'basic') {
     const wasTrial = localStorage.getItem('acorn_trial_days') !== null;
     if (!wasTrial) { banner.style.display = 'none'; return; }
     banner.style.background = 'rgba(201,125,96,0.08)';
     banner.style.color = '#C97D60';
     banner.style.border = '1px solid rgba(201,125,96,0.2)';
-    text.innerHTML = 'Your Pro trial has ended. You\u2019re now on the Basic plan. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro →</a>';
+    text.innerHTML = 'Your Pro trial has ended. You\u2019re now on the Basic plan. <a href="' + _uUrl + '" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro →</a>';
   } else {
     banner.style.display = 'none'; return;
   }
@@ -519,7 +525,7 @@ function _showDateWarning() {
     w = document.createElement('div');
     w.id = 'dateRangeWarning';
     w.style.cssText = 'color:#C97D60;font-size:12px;margin-top:6px;';
-    w.innerHTML = 'Basic plan is limited to a 3-month date range. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro \u2192</a>';
+    w.innerHTML = 'Basic plan is limited to a 3-month date range. <a href="' + _upgradeUrl() + '" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro →</a>';
     const bar = $('liteDateEnd')?.closest('.field-row') || $('liteDateEnd')?.parentElement;
     if (bar) bar.after(w);
   }
@@ -1968,7 +1974,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const planLabel = $('sidebarPlanLabel');
   if (planLabel) planLabel.textContent = _planLabel();
   const upgradeLink = $('sidebarUpgradeLink');
-  if (upgradeLink) upgradeLink.style.display = (userPlan === 'basic' || localStorage.getItem('acorn_trial') === 'true') ? '' : 'none';
+  const _uUrlInit = _upgradeUrl();
+  if (upgradeLink) {
+    upgradeLink.href = _uUrlInit;
+    upgradeLink.style.display = _uUrlInit ? '' : 'none';
+  }
+  document.querySelectorAll('.upgrade-link').forEach(a => { a.href = _uUrlInit; });
   const trialDaysEl = $('sidebarCompanyCount');
   if (trialDaysEl && localStorage.getItem('acorn_trial') === 'true') {
     const d = parseInt(localStorage.getItem('acorn_trial_days') || '0', 10);
