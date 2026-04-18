@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(python:*)",
+      "Bash(grep -E \"realm_id|start_date|end_date|map_name|file_path\" /c/Users/chris/acorn-lite-web/backend/*.py)",
+      "Bash(grep *)",
+      "Bash(ls *.md)",
+      "Bash(ls docs *)",
+      "Bash(ls admin *)",
+      "Bash(cat Dockerfile)",
+      "Bash(cat railway.toml)",
+      "Bash(cat Procfile)",
+      "Bash(cat nixpacks.toml)"
+    ]
+  }
+}

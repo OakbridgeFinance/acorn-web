@@ -34,15 +34,6 @@ def _col_id(col_data_item: dict) -> str:
     return col_data_item.get("id", "")
 
 
-def _build_amount_row(col_data: list[dict], columns: list[str]) -> dict:
-    """Map ColData list to a {column_name: value} dict."""
-    row = {}
-    for i, col in enumerate(col_data):
-        col_name = columns[i] if i < len(columns) else f"Col_{i}"
-        row[col_name] = _col_value(col)
-    return row
-
-
 # ---------------------------------------------------------------------------
 # General Ledger parser
 # ---------------------------------------------------------------------------

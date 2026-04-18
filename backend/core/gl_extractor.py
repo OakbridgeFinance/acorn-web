@@ -129,7 +129,7 @@ def _parse_date(val):
     return val
 
 
-def _build_coa_lookup(alias: str, progress_fn: Callable = print) -> dict:
+def _build_coa_lookup(access_token: str, realm_id: str, progress_fn: Callable = print) -> dict:
     """Build {account_id: {type, subtype}} from Chart of Accounts.
 
     Also builds a name-based lookup (stripping account number prefix)
@@ -140,7 +140,7 @@ def _build_coa_lookup(alias: str, progress_fn: Callable = print) -> dict:
     import re
     lookup = {}
     try:
-        accts = fetch_accounts(alias)
+        accts = fetch_accounts(access_token=access_token, realm_id=realm_id)
         type_counts: dict[str, int] = {}
         for a in (accts or []):
             acct_num = a.get("AcctNum", "").strip()
@@ -181,19 +181,19 @@ _MAX_CELLS = 300_000  # QBO limit is 400k; leave buffer
 _CELL_LIMIT_MARKER = "Unable to display more data"
 
 
-def _fetch_gl_single(alias: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Fetch one GL chunk (default + custom columns merged). No v2 handling.
+def _fetch_gl_single(access_token: str, realm_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Fetch one GL chunk (default + custom columns merged).
     Retries on network/timeout errors with exponential backoff."""
     import time as _time
     MAX_RETRIES = 3
 
     for attempt in range(MAX_RETRIES):
         try:
-            raw = fetch_report(alias, "GeneralLedger", {
+            raw = fetch_report("GeneralLedger", {
                 "start_date": start_date,
                 "end_date": end_date,
                 "accounting_method": "Accrual",
-            })
+            }, access_token=access_token, realm_id=realm_id)
             _raw_str = str(raw)
             if _CELL_LIMIT_MARKER in _raw_str:
                 raise _CellLimitError(f"QBO cell limit hit for {start_date} to {end_date}")
@@ -202,12 +202,12 @@ def _fetch_gl_single(alias: str, start_date: str, end_date: str) -> pd.DataFrame
 
             # Merge custom columns (Class, Account#)
             try:
-                raw_extra = fetch_report(alias, "GeneralLedger", {
+                raw_extra = fetch_report("GeneralLedger", {
                     "start_date": start_date,
                     "end_date": end_date,
                     "accounting_method": "Accrual",
                     "columns": _GL_EXTRA_COLS,
-                })
+                }, access_token=access_token, realm_id=realm_id)
                 df_extra = parse_general_ledger(raw_extra)
                 if len(df_extra) == len(df):
                     for c in df_extra.columns:
@@ -243,26 +243,16 @@ class _CellLimitError(Exception):
     pass
 
 
-def _fetch_gl(alias: str, start_date: str, end_date: str,
+def _fetch_gl(access_token: str, realm_id: str, start_date: str, end_date: str,
               progress_fn: Callable = print) -> pd.DataFrame:
     """Fetch GL in auto-sized chunks to stay under QBO's 400k cell limit.
 
     Always uses v1 API — v2 GL drops Amount/Balance columns entirely.
     """
-    from qbo_client import _v2_test_mode, set_v2_test_mode
-    _was_v2 = _v2_test_mode
-    if _was_v2:
-        set_v2_test_mode(False)
-        progress_fn("  (v2 test mode suspended for GL fetch)")
-
-    try:
-        return _fetch_gl_chunked(alias, start_date, end_date, progress_fn)
-    finally:
-        if _was_v2:
-            set_v2_test_mode(True)
+    return _fetch_gl_chunked(access_token, realm_id, start_date, end_date, progress_fn)
 
 
-def _fetch_gl_chunked(alias: str, start_date: str, end_date: str,
+def _fetch_gl_chunked(access_token: str, realm_id: str, start_date: str, end_date: str,
                       progress_fn: Callable = print) -> pd.DataFrame:
     """Auto-chunk GL fetch based on estimated cell count."""
     months = _month_starts(start_date, end_date)
@@ -280,7 +270,7 @@ def _fetch_gl_chunked(alias: str, start_date: str, end_date: str,
         pm_end   = date(probe_month.year, probe_month.month,
                         calendar.monthrange(probe_month.year, probe_month.month)[1]).isoformat()
         try:
-            pm_df = _fetch_gl_single(alias, pm_start, pm_end)
+            pm_df = _fetch_gl_single(access_token, realm_id, pm_start, pm_end)
             if len(pm_df) > probe_rows:
                 probe_rows = len(pm_df)
                 probe_df   = pm_df
@@ -294,7 +284,7 @@ def _fetch_gl_chunked(alias: str, start_date: str, end_date: str,
         # No data in first month — try full range as single call
         progress_fn("  GL probe: 0 rows in first month, trying full range...")
         try:
-            return _fetch_gl_single(alias, start_date, end_date)
+            return _fetch_gl_single(access_token, realm_id, start_date, end_date)
         except _CellLimitError:
             progress_fn("  WARNING: Full range exceeds QBO cell limit")
             return pd.DataFrame()
@@ -316,7 +306,7 @@ def _fetch_gl_chunked(alias: str, start_date: str, end_date: str,
             return probe_df
         progress_fn(f"  GL: fetching full range as single call...")
         try:
-            return _fetch_gl_single(alias, start_date, end_date)
+            return _fetch_gl_single(access_token, realm_id, start_date, end_date)
         except _CellLimitError:
             progress_fn("  WARNING: Full range hit cell limit, falling back to chunked fetch")
             months_per_chunk = max(1, months_per_chunk // 2)
@@ -338,7 +328,7 @@ def _fetch_gl_chunked(alias: str, start_date: str, end_date: str,
         progress_fn(f"  GL chunk [{chunk_idx}/{n_chunks_est}]: {c_start} to {c_end}")
 
         try:
-            chunk_df = _fetch_gl_single(alias, c_start, c_end)
+            chunk_df = _fetch_gl_single(access_token, realm_id, c_start, c_end)
             progress_fn(f"    {len(chunk_df)} rows")
             all_dfs.append(chunk_df)
             i += months_per_chunk
@@ -642,7 +632,8 @@ def _prepare_bs_gl_rows(
 # ── BS Balances ──────────────────────────────────────────────────────────────
 
 def _fetch_bs_balances(
-    alias: str,
+    access_token: str,
+    realm_id: str,
     start_date: str,
     end_date: str,
     progress_fn: Callable = print,
@@ -671,11 +662,11 @@ def _fetch_bs_balances(
 
     for me_dt in months:
         progress_fn(f"  BS {me_dt.strftime('%b %Y')}...")
-        raw = fetch_report(alias, "BalanceSheet", {
+        raw = fetch_report("BalanceSheet", {
             "start_date": start_date,
             "end_date": me_dt.isoformat(),
             "accounting_method": "Accrual",
-        })
+        }, access_token=access_token, realm_id=realm_id)
         df = parse_financial_statement(raw)
         if df.empty:
             continue
@@ -736,7 +727,8 @@ def _fetch_bs_balances(
 # ── Monthly P&L and Balance Sheet ────────────────────────────────────────────
 
 def _fetch_monthly_reports(
-    alias: str,
+    access_token: str,
+    realm_id: str,
     start_date: str,
     end_date: str,
     progress_fn: Callable = print,
@@ -753,12 +745,12 @@ def _fetch_monthly_reports(
     pl_rows: list[list] = []
     try:
         progress_fn("  Fetching P&L (single call, all months)...")
-        pl_raw = fetch_report(alias, "ProfitAndLoss", {
+        pl_raw = fetch_report("ProfitAndLoss", {
             "start_date":          start_date,
             "end_date":            end_date,
             "accounting_method":   "Accrual",
             "summarize_column_by": "Month",
-        })
+        }, access_token=access_token, realm_id=realm_id)
         pl_df = parse_financial_statement(pl_raw)
 
         if not pl_df.empty:
@@ -806,11 +798,11 @@ def _fetch_monthly_reports(
     # Step 1: One call for the FULL period to get complete account list in correct order
     progress_fn(f"  Balance Sheet: fetching account structure...")
     try:
-        bs_structure_raw = fetch_report(alias, "BalanceSheet", {
+        bs_structure_raw = fetch_report("BalanceSheet", {
             "start_date":        start_date,
             "end_date":          months[-1].isoformat(),
             "accounting_method": "Accrual",
-        })
+        }, access_token=access_token, realm_id=realm_id)
         bs_structure_df = parse_financial_statement(bs_structure_raw)
         if not bs_structure_df.empty:
             for _, row in bs_structure_df.iterrows():
@@ -835,11 +827,11 @@ def _fetch_monthly_reports(
     for mi, me_dt in enumerate(months):
         progress_fn(f"  Balance Sheet: {me_dt.strftime('%b %Y')}...")
         try:
-            bs_raw = fetch_report(alias, "BalanceSheet", {
+            bs_raw = fetch_report("BalanceSheet", {
                 "start_date":        start_date,
                 "end_date":          me_dt.isoformat(),
                 "accounting_method": "Accrual",
-            })
+            }, access_token=access_token, realm_id=realm_id)
             bs_df = parse_financial_statement(bs_raw)
             if bs_df.empty:
                 continue
@@ -876,7 +868,8 @@ def _fetch_monthly_reports(
 # ── IS by Dimension (Class / Location) ───────────────────────────────────────
 
 def _fetch_pl_by_dimension(
-    alias: str,
+    access_token: str,
+    realm_id: str,
     start_date: str,
     end_date: str,
     dimension: str,
@@ -907,12 +900,12 @@ def _fetch_pl_by_dimension(
         month_label = month_labels[mi]
 
         try:
-            raw = fetch_report(alias, "ProfitAndLoss", {
+            raw = fetch_report("ProfitAndLoss", {
                 "start_date":          month_start,
                 "end_date":            month_end,
                 "accounting_method":   "Accrual",
                 "summarize_column_by": qbo_summarize,
-            })
+            }, access_token=access_token, realm_id=realm_id)
             df = parse_financial_statement(raw)
             if df.empty:
                 progress_fn(f"  DEBUG: parse_financial_statement returned empty for {month_label} {dim_label}")
@@ -1058,21 +1051,21 @@ def _parse_aging_report(report_json: dict) -> list[list]:
     return result
 
 
-def _fetch_ar_aging(alias, as_of_date, progress_fn):
+def _fetch_ar_aging(access_token, realm_id, as_of_date, progress_fn):
     """Fetch AR Aging (AgedReceivables) report from QBO."""
-    raw = fetch_report(alias, "AgedReceivables", {
+    raw = fetch_report("AgedReceivables", {
         "report_date": as_of_date,
-    })
+    }, access_token=access_token, realm_id=realm_id)
     rows = _parse_aging_report(raw)
     progress_fn(f"  AR Aging: {len(rows) - 1 if rows else 0} rows")
     return rows
 
 
-def _fetch_ap_aging(alias, as_of_date, progress_fn):
+def _fetch_ap_aging(access_token, realm_id, as_of_date, progress_fn):
     """Fetch AP Aging (AgedPayables) report from QBO."""
-    raw = fetch_report(alias, "AgedPayables", {
+    raw = fetch_report("AgedPayables", {
         "report_date": as_of_date,
-    })
+    }, access_token=access_token, realm_id=realm_id)
     rows = _parse_aging_report(raw)
     progress_fn(f"  AP Aging: {len(rows) - 1 if rows else 0} rows")
     return rows
@@ -1166,7 +1159,8 @@ def _write_aging_sheet(wb: openpyxl.Workbook, tab_name: str, rows: list[list],
 # ── Validation (live formula version) ────────────────────────────────────────
 
 def _fetch_qbo_report_totals(
-    alias: str,
+    access_token: str,
+    realm_id: str,
     start_date: str,
     end_date: str,
     progress_fn: Callable = print,
@@ -1194,11 +1188,11 @@ def _fetch_qbo_report_totals(
 
     qbo_is: dict[str, dict] = {}
     try:
-        pl_raw = fetch_report(alias, "ProfitAndLoss", {
+        pl_raw = fetch_report("ProfitAndLoss", {
             "start_date": start_date,
             "end_date":   end_date,
             "accounting_method": "Accrual",
-        })
+        }, access_token=access_token, realm_id=realm_id)
         pl_df  = parse_financial_statement(pl_raw)
         meta   = {"Row_Type", "Indent_Level", "Account_Path", "Account", "Account_ID"}
         all_num_cols = [c for c in pl_df.columns if c not in meta]
@@ -1242,11 +1236,11 @@ def _fetch_qbo_report_totals(
 
     qbo_bs: dict[str, dict] = {}
     try:
-        bs_raw = fetch_report(alias, "BalanceSheet", {
+        bs_raw = fetch_report("BalanceSheet", {
             "start_date": start_date,
             "end_date":   end_date,
             "accounting_method": "Accrual",
-        })
+        }, access_token=access_token, realm_id=realm_id)
         bs_df  = parse_financial_statement(bs_raw)
         meta   = {"Row_Type", "Indent_Level", "Account_Path", "Account", "Account_ID"}
         num_cols = [c for c in bs_df.columns if c not in meta]
@@ -1993,7 +1987,8 @@ def _build_bs_gl_summary(bs_gl_rows: list[list]) -> list[list]:
 
 
 def generate_lite(
-    alias: str,
+    access_token: str,
+    realm_id: str,
     start_date: str,
     end_date: str,
     output_mode: str = "new",
@@ -2018,22 +2013,21 @@ def generate_lite(
 
     Returns {"path": str} with the output file path.
     """
-    alias = alias.upper()
-    progress_fn(f"\n  Acorn Lite — {alias}")
+    progress_fn(f"\n  Acorn Lite — {company_name or realm_id}")
     progress_fn(f"  Period: {start_date} to {end_date}\n")
 
     _check_cancel(cancel_fn)
     if pct_fn: pct_fn(5)
 
     progress_fn("  Fetching Chart of Accounts...")
-    coa_lookup = _build_coa_lookup(alias, progress_fn)
+    coa_lookup = _build_coa_lookup(access_token, realm_id, progress_fn)
     progress_fn(f"  COA: {len(coa_lookup)} accounts")
 
     _check_cancel(cancel_fn)
     if pct_fn: pct_fn(10)
 
     progress_fn("\n  Fetching GL...")
-    gl_df = _fetch_gl(alias, start_date, end_date, progress_fn)
+    gl_df = _fetch_gl(access_token, realm_id, start_date, end_date, progress_fn)
 
     _check_cancel(cancel_fn)
     if pct_fn: pct_fn(40)
@@ -2055,7 +2049,7 @@ def generate_lite(
     if pct_fn: pct_fn(58)
 
     progress_fn("\n  Fetching BS Balances...")
-    bal_rows = _fetch_bs_balances(alias, start_date, end_date, progress_fn, coa_lookup=coa_lookup)
+    bal_rows = _fetch_bs_balances(access_token, realm_id, start_date, end_date, progress_fn, coa_lookup=coa_lookup)
     n_bal = len(bal_rows) - 1 if bal_rows else 0
     progress_fn(f"[progress] BS Balances: {n_bal} rows")
     if pct_fn: pct_fn(65)
@@ -2063,7 +2057,7 @@ def generate_lite(
     _check_cancel(cancel_fn)
     progress_fn("\n  Fetching monthly P&L and Balance Sheet...")
     pl_report_rows, bs_report_rows = _fetch_monthly_reports(
-        alias, start_date, end_date, progress_fn
+        access_token, realm_id, start_date, end_date, progress_fn
     )
     n_pl = len(pl_report_rows) - 1 if pl_report_rows else 0
     n_bs_report = len(bs_report_rows) - 1 if bs_report_rows else 0
@@ -2099,7 +2093,7 @@ def generate_lite(
         else:
             start_ym = start_date[:7]
             end_ym = end_date[:7]
-            save_path = out_dir / f"{alias}_GL_{start_ym}_{end_ym}.xlsx"
+            save_path = out_dir / f"{realm_id}_GL_{start_ym}_{end_ym}.xlsx"
         progress_fn(f"\n  Writing {save_path.name}...")
         wb = openpyxl.Workbook()
         wb.calculation.calcMode = "auto"
@@ -2126,7 +2120,7 @@ def generate_lite(
     if include_ar_aging:
         try:
             progress_fn("\n  Fetching AR Aging...")
-            ar_rows = _fetch_ar_aging(alias, end_date, progress_fn)
+            ar_rows = _fetch_ar_aging(access_token, realm_id, end_date, progress_fn)
             if ar_rows and len(ar_rows) > 1:
                 _write_aging_sheet(wb, "AR Aging", ar_rows, end_date, company_name=_cn)
         except Exception as _ar_err:
@@ -2135,7 +2129,7 @@ def generate_lite(
     if include_ap_aging:
         try:
             progress_fn("\n  Fetching AP Aging...")
-            ap_rows = _fetch_ap_aging(alias, end_date, progress_fn)
+            ap_rows = _fetch_ap_aging(access_token, realm_id, end_date, progress_fn)
             if ap_rows and len(ap_rows) > 1:
                 _write_aging_sheet(wb, "AP Aging", ap_rows, end_date, company_name=_cn)
         except Exception as _ap_err:
@@ -2353,7 +2347,7 @@ def generate_lite(
                         validation_rows=bs_validation_rows, company_name=_cn)
     _check_cancel(cancel_fn)
     progress_fn("\n  Fetching QBO report totals for validation...")
-    qbo_is, qbo_bs = _fetch_qbo_report_totals(alias, start_date, end_date, progress_fn, coa_lookup=coa_lookup)
+    qbo_is, qbo_bs = _fetch_qbo_report_totals(access_token, realm_id, start_date, end_date, progress_fn, coa_lookup=coa_lookup)
     if pct_fn: pct_fn(90)
 
     progress_fn("\n  Writing Validation tab...")

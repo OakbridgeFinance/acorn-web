@@ -25,43 +25,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-import traceback
+# Let import errors crash startup — a silently-missing router is worse than
+# a visible boot failure in the logs.
+from backend.auth import router as auth_router
+from backend.qbo_oauth import router as qbo_router
+from backend.reports import router as reports_router
+from backend.mapping import router as mapping_router
 
-try:
-    from backend.auth import router as auth_router
-    app.include_router(auth_router)
-    logger.info("Auth router loaded")
-except Exception as e:
-    logger.error(f"Failed to load auth router: {e}")
-    logger.error(traceback.format_exc())
-
-try:
-    from backend.qbo_oauth import router as qbo_router
-    app.include_router(qbo_router)
-    logger.info("QBO router loaded")
-except Exception as e:
-    logger.error(f"Failed to load qbo router: {e}")
-    logger.error(traceback.format_exc())
-
-try:
-    from backend.reports import router as reports_router
-    app.include_router(reports_router)
-    logger.info("Reports router loaded")
-except Exception as e:
-    logger.error(f"Failed to load reports router: {e}")
-    logger.error(traceback.format_exc())
-
-try:
-    from backend.mapping import router as mapping_router
-    app.include_router(mapping_router)
-    logger.info("Mapping router loaded")
-except Exception as e:
-    logger.error(f"Failed to load mapping router: {e}")
-    logger.error(traceback.format_exc())
+app.include_router(auth_router)
+app.include_router(qbo_router)
+app.include_router(reports_router)
+app.include_router(mapping_router)
 
 FRONTEND = Path(__file__).parent.parent / "frontend"
-logger.info(f"Frontend path: {FRONTEND}")
-logger.info(f"Frontend exists: {FRONTEND.exists()}")
+
+
+@app.on_event("startup")
+def _recover_orphan_jobs():
+    """Flip any pending/running jobs to failed at startup.
+
+    Reports run in in-process threads. A process restart (deploy, crash) drops
+    the worker but leaves the DB row stuck at status='running', so the UI
+    polls forever. Sweep on boot.
+    """
+    try:
+        from datetime import datetime
+        from supabase import create_client
+        sb = create_client(
+            os.getenv("SUPABASE_URL"),
+            os.getenv("SUPABASE_SERVICE_KEY"),
+        )
+        sb.table("jobs").update({
+            "status":     "failed",
+            "error":      "Server restart",
+            "updated_at": datetime.utcnow().isoformat(),
+        }).in_("status", ["pending", "running"]).execute()
+    except Exception as e:
+        logger.warning(f"Orphan-job recovery sweep failed: {e}")
 
 @app.get("/health")
 def health():
