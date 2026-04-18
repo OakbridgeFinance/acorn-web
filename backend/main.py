@@ -83,6 +83,10 @@ def app_page():
 def styles():
     return FileResponse(FRONTEND / "style.css", media_type="text/css")
 
+@app.get("/Logo-F23-transparent.png")
+def logo_image():
+    return FileResponse(FRONTEND / "Logo-F23-transparent.png", media_type="image/png")
+
 @app.get("/favicon.svg")
 def favicon_svg():
     return FileResponse(FRONTEND / "favicon.svg", media_type="image/svg+xml")
