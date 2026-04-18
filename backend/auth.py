@@ -127,7 +127,7 @@ def signup(body: AuthRequest, request: Request):
         result = supabase_admin.auth.admin.create_user({
             "email": body.email,
             "password": body.password,
-            "email_confirm": False,
+            "email_confirm": True,
             "app_metadata": {
                 "plan": "pro",
                 "trial_start": now.isoformat(),
