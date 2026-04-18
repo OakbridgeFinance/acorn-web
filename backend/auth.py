@@ -1,5 +1,9 @@
 import os
-from fastapi import APIRouter, HTTPException, Depends
+import re
+import time
+from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from supabase import create_client
@@ -8,41 +12,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Plan / admin flags live in app_metadata, NOT user_metadata ───────────────
-# Supabase clients can update their own user_metadata via the JS SDK
-# (auth.updateUser), which would let any signed-in user self-promote to
-# admin or pro if the gates read from there. app_metadata can only be
-# written by the service role, so we read both `plan` and `admin` from
-# app_metadata throughout the backend.
+# app_metadata can only be written by the service role.
 #
-# To grant a plan or admin flag, run something like (in Supabase SQL):
-#
+# To grant a plan:
 #   update auth.users
 #   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
-#                         || '{"plan": "admin"}'::jsonb
+#                         || '{"plan": "pro"}'::jsonb
 #   where email = 'someone@example.com';
-#
-#   update auth.users
-#   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
-#                         || '{"admin": true}'::jsonb
-#   where email = 'someone@example.com';
-#
-# One-time migration for existing users whose plan/admin currently lives
-# in user_metadata (run once, then nothing else needed):
-#
-#   update auth.users
-#   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
-#                         || jsonb_build_object('plan', raw_user_meta_data->>'plan')
-#   where raw_user_meta_data ? 'plan'
-#     and (raw_app_meta_data->>'plan') is distinct from (raw_user_meta_data->>'plan');
-#
-#   update auth.users
-#   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
-#                         || jsonb_build_object('admin', raw_user_meta_data->'admin')
-#   where raw_user_meta_data ? 'admin'
-#     and (raw_app_meta_data->'admin') is distinct from (raw_user_meta_data->'admin');
-#
-# The user_metadata copies are intentionally left in place; they're just
-# no longer authoritative.
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -70,39 +46,105 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+# ── Trial / plan helpers ─────────────────────────────────────────────────────
+
+def _effective_plan(app_meta: dict) -> tuple[str, bool, int]:
+    """Return (plan, is_trial, days_remaining) with trial expiry enforced."""
+    plan = app_meta.get("plan", "basic")
+    trial_expires = app_meta.get("trial_expires")
+
+    if plan in ("pro", "plus") and trial_expires:
+        try:
+            expiry = datetime.fromisoformat(str(trial_expires).replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            remaining = (expiry - now).days
+            if remaining < 0:
+                return ("basic", False, 0)
+            return (plan, True, max(remaining, 0))
+        except Exception:
+            pass
+
+    return (plan, False, 0)
+
+
+# ── Rate limiting for signup ─────────────────────────────────────────────────
+
+_signup_attempts: dict[str, list[float]] = defaultdict(list)
+_SIGNUP_LIMIT = 5
+_SIGNUP_WINDOW = 3600  # 1 hour
+
+
+def _check_signup_rate(ip: str):
+    now = time.time()
+    attempts = _signup_attempts[ip]
+    _signup_attempts[ip] = [t for t in attempts if now - t < _SIGNUP_WINDOW]
+    if len(_signup_attempts[ip]) >= _SIGNUP_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many signup attempts. Try again later.")
+    _signup_attempts[ip].append(now)
+
+
+# ── Auth dependency ──────────────────────────────────────────────────────────
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validate JWT token and return user."""
-    # Use the anon client: JWT verification doesn't need service-role
-    # privileges, and using the admin client here would expand the blast
-    # radius if this function ever grows beyond simple token validation.
+    """Validate JWT token and return user with effective plan."""
     supabase = get_supabase_anon()
     try:
         result = supabase.auth.get_user(credentials.credentials)
-        return result.user
+        user = result.user
+        # Attach effective plan (with trial expiry check) to the user object
+        app_meta = user.app_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta)
+        if not hasattr(user, '_acorn_plan'):
+            user._acorn_plan = plan
+            user._acorn_trial = is_trial
+            user._acorn_trial_days = days
+        return user
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
 @router.post("/signup")
-def signup(body: AuthRequest, user=Depends(get_current_user)):
-    """Create a new user account (admin only)."""
-    app_meta = user.app_metadata or {}
-    if not app_meta.get("admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    supabase = get_supabase_anon()
+def signup(body: AuthRequest, request: Request):
+    """Create a new user account with a 7-day Pro trial."""
+    # Validation
+    if not body.email or not _EMAIL_RE.match(body.email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+
+    # Rate limit
+    client_ip = request.client.host if request.client else "unknown"
+    _check_signup_rate(client_ip)
+
+    supabase_admin = get_supabase_admin()
     try:
-        result = supabase.auth.sign_up({
-            "email":    body.email,
+        now = datetime.utcnow()
+        result = supabase_admin.auth.admin.create_user({
+            "email": body.email,
             "password": body.password,
+            "email_confirm": False,
+            "app_metadata": {
+                "plan": "pro",
+                "trial_start": now.isoformat(),
+                "trial_expires": (now + timedelta(days=7)).isoformat(),
+            },
         })
-        return {"message": "User created"}
+        return {"message": "Account created! Check your email to verify, then sign in."}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        detail = str(e)
+        if "already been registered" in detail.lower() or "already exists" in detail.lower():
+            raise HTTPException(status_code=400, detail="An account with this email already exists.")
+        raise HTTPException(status_code=400, detail=detail)
 
 
 @router.post("/login")
 def login(body: AuthRequest):
-    """Log in and return a session token."""
+    """Log in and return a session token with plan/trial info."""
     supabase = get_supabase_anon()
     try:
         result = supabase.auth.sign_in_with_password({
@@ -110,26 +152,34 @@ def login(body: AuthRequest):
             "password": body.password,
         })
         app_meta = result.user.app_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta)
         return {
             "access_token":  result.session.access_token,
             "refresh_token": result.session.refresh_token,
             "user_id":       result.user.id,
             "email":         result.user.email,
-            "plan":          app_meta.get("plan", "starter"),
+            "plan":          plan,
+            "trial":         is_trial,
+            "trial_days_remaining": days,
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
 
 @router.post("/refresh")
 def refresh_token(body: RefreshRequest):
-    """Refresh an expired access token."""
+    """Refresh an expired access token, including updated plan/trial info."""
     supabase = get_supabase_anon()
     try:
         result = supabase.auth.refresh_session(body.refresh_token)
+        app_meta = result.user.app_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta)
         return {
             "access_token":  result.session.access_token,
             "refresh_token": result.session.refresh_token,
+            "plan":          plan,
+            "trial":         is_trial,
+            "trial_days_remaining": days,
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid refresh token")

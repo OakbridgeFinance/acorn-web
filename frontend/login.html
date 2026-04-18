@@ -27,13 +27,17 @@
       <label for="password">Password</label>
       <input type="password" id="password" placeholder="Password" />
     </div>
+    <div class="login-field" id="confirmField" style="display:none;">
+      <label for="confirmPassword">Confirm Password</label>
+      <input type="password" id="confirmPassword" placeholder="Confirm password" />
+    </div>
 
     <button class="login-btn" id="authBtn" onclick="doAuth()">Sign In</button>
     <div class="login-error" id="authError"></div>
 
     <div class="login-toggle">
       <span id="toggleText">Don't have an account?</span>
-      <a id="toggleLink" onclick="toggleMode()">Sign Up</a>
+      <a id="toggleLink" onclick="toggleMode()">Create one →</a>
     </div>
   </div>
   <p style="color:rgba(255,255,255,0.45);font-size:12px;font-family:'Source Sans 3',sans-serif;margin-top:16px;">Acorn by Oakbridge Finance</p>
@@ -45,10 +49,11 @@ let isSignup = false;
 
 function toggleMode() {
   isSignup = !isSignup;
-  document.getElementById('authTitle').textContent = isSignup ? 'Create Account' : 'Sign In';
+  document.getElementById('authTitle').textContent = isSignup ? 'Create your account' : 'Sign in to Acorn';
   document.getElementById('authBtn').textContent   = isSignup ? 'Create Account' : 'Sign In';
   document.getElementById('toggleText').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
-  document.getElementById('toggleLink').textContent = isSignup ? 'Sign In' : 'Sign Up';
+  document.getElementById('toggleLink').textContent = isSignup ? 'Sign in →' : 'Create one →';
+  document.getElementById('confirmField').style.display = isSignup ? '' : 'none';
   document.getElementById('authError').style.display = 'none';
 }
 
@@ -60,12 +65,29 @@ async function doAuth() {
 
   if (!email || !password) {
     errEl.textContent = 'Email and password are required.';
+    errEl.style.color = '#CC0000';
     errEl.style.display = 'block';
     return;
   }
 
+  if (isSignup) {
+    const confirm = document.getElementById('confirmPassword').value;
+    if (password !== confirm) {
+      errEl.textContent = 'Passwords do not match.';
+      errEl.style.color = '#CC0000';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (password.length < 8) {
+      errEl.textContent = 'Password must be at least 8 characters.';
+      errEl.style.color = '#CC0000';
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+
   btn.disabled = true;
-  btn.textContent = isSignup ? 'Creating account\u2026' : 'Signing in\u2026';
+  btn.textContent = isSignup ? 'Creating account…' : 'Signing in…';
   errEl.style.display = 'none';
 
   try {
@@ -82,8 +104,8 @@ async function doAuth() {
     }
 
     if (isSignup) {
-      errEl.textContent = data.message || 'Check your email to confirm.';
-      errEl.style.color = '#059669';
+      errEl.textContent = data.message || 'Account created! Check your email to verify, then sign in.';
+      errEl.style.color = '#276221';
       errEl.style.display = 'block';
       btn.disabled = false;
       btn.textContent = 'Create Account';
@@ -95,12 +117,14 @@ async function doAuth() {
     localStorage.setItem('acorn_refresh_token', data.refresh_token);
     localStorage.setItem('acorn_user_id',       data.user_id);
     localStorage.setItem('acorn_email',         data.email);
-    localStorage.setItem('acorn_plan',          data.plan || 'starter');
+    localStorage.setItem('acorn_plan',          data.plan || 'basic');
+    localStorage.setItem('acorn_trial',         data.trial ? 'true' : 'false');
+    localStorage.setItem('acorn_trial_days',    String(data.trial_days_remaining || 0));
     window.location.href = 'app.html';
 
   } catch (e) {
     errEl.textContent = e.message;
-    errEl.style.color = '#dc2626';
+    errEl.style.color = '#CC0000';
     errEl.style.display = 'block';
     btn.disabled = false;
     btn.textContent = isSignup ? 'Create Account' : 'Sign In';

@@ -46,6 +46,10 @@
 
   <!-- ── Main content ────────────────────────────────────────────────────── -->
   <div class="main">
+    <div id="trialBanner" style="display:none;padding:10px 16px;font-size:13px;border-radius:8px;margin:12px 16px 0;display:none;align-items:center;justify-content:space-between;">
+      <span id="trialBannerText"></span>
+      <button onclick="this.parentElement.style.display='none'" style="background:none;border:none;cursor:pointer;font-size:16px;color:inherit;padding:0 4px;">×</button>
+    </div>
     <div class="page active" id="pageLite">
 
       <div class="page-header">
@@ -413,6 +417,12 @@ async function refreshTokenIfNeeded() {
     const data = await res.json();
     localStorage.setItem('acorn_access_token', data.access_token);
     localStorage.setItem('acorn_refresh_token', data.refresh_token);
+    if (data.plan) {
+      localStorage.setItem('acorn_plan', data.plan);
+      localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
+      localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
+      userPlan = data.plan;
+    }
     return true;
   } catch (e) {
     return false;
@@ -435,8 +445,44 @@ function hasFeature(name) {
   return (PLAN_FEATURES[userPlan] || []).includes(name);
 }
 function _planLabel() {
+  const isTrial = localStorage.getItem('acorn_trial') === 'true';
   const labels = { basic: 'Basic (Free)', pro: 'Pro', plus: 'Plus', admin: 'Admin' };
-  return labels[userPlan] || userPlan;
+  const base = labels[userPlan] || userPlan;
+  return isTrial ? base + ' (Trial)' : base;
+}
+function _showTrialBanner() {
+  const banner = $('trialBanner');
+  const text = $('trialBannerText');
+  if (!banner || !text) return;
+  const isTrial = localStorage.getItem('acorn_trial') === 'true';
+  const days = parseInt(localStorage.getItem('acorn_trial_days') || '0', 10);
+  if (!isTrial && userPlan !== 'basic') { banner.style.display = 'none'; return; }
+  if (isTrial && days >= 5) {
+    banner.style.background = 'rgba(41,161,175,0.08)';
+    banner.style.color = '#07393C';
+    banner.style.border = '1px solid rgba(41,161,175,0.2)';
+    text.innerHTML = 'You\u2019re on a 7-day Pro trial. ' + days + ' days remaining. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>';
+  } else if (isTrial && days >= 2) {
+    banner.style.background = 'rgba(201,125,96,0.08)';
+    banner.style.color = '#92400E';
+    banner.style.border = '1px solid rgba(201,125,96,0.2)';
+    text.innerHTML = 'Your Pro trial ends in ' + days + ' days. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade now →</a>';
+  } else if (isTrial && days >= 0) {
+    banner.style.background = 'rgba(204,0,0,0.06)';
+    banner.style.color = '#CC0000';
+    banner.style.border = '1px solid rgba(204,0,0,0.15)';
+    text.innerHTML = 'Your Pro trial ends today! <a href="/acorn#pricing" style="color:#CC0000;font-weight:600;text-decoration:underline;">Upgrade to keep Pro features →</a>';
+  } else if (userPlan === 'basic') {
+    const wasTrial = localStorage.getItem('acorn_trial_days') !== null;
+    if (!wasTrial) { banner.style.display = 'none'; return; }
+    banner.style.background = 'rgba(201,125,96,0.08)';
+    banner.style.color = '#C97D60';
+    banner.style.border = '1px solid rgba(201,125,96,0.2)';
+    text.innerHTML = 'Your Pro trial has ended. You\u2019re now on the Basic plan. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro →</a>';
+  } else {
+    banner.style.display = 'none'; return;
+  }
+  banner.style.display = 'flex';
 }
 function _checkDateRange() {
   if (userPlan !== 'basic') { _hideDateWarning(); return true; }
@@ -1922,7 +1968,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const planLabel = $('sidebarPlanLabel');
   if (planLabel) planLabel.textContent = _planLabel();
   const upgradeLink = $('sidebarUpgradeLink');
-  if (upgradeLink) upgradeLink.style.display = (userPlan === 'basic') ? '' : 'none';
+  if (upgradeLink) upgradeLink.style.display = (userPlan === 'basic' || localStorage.getItem('acorn_trial') === 'true') ? '' : 'none';
+  const trialDaysEl = $('sidebarCompanyCount');
+  if (trialDaysEl && localStorage.getItem('acorn_trial') === 'true') {
+    const d = parseInt(localStorage.getItem('acorn_trial_days') || '0', 10);
+    trialDaysEl.textContent = d + ' day' + (d !== 1 ? 's' : '') + ' remaining in trial';
+  }
+  _showTrialBanner();
 
   // Date range validation for basic
   $('liteDateStart')?.addEventListener('change', _checkDateRange);
