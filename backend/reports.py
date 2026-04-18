@@ -831,23 +831,17 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     pr = 6
                                     rr = {}
 
-                                    PL_SECS = ["Revenue", "COS", "Cost of Goods Sold",
-                                                "Sales & Marketing", "Operating Expenses",
-                                                "Other Income", "Other Expense", "Other"]
-
-                                    for sec in PL_SECS:
+                                    def _write_sec(sec):
+                                        nonlocal pr
                                         grps = _is_sg.get(sec)
                                         if not grps:
-                                            continue
-
-                                        # Section header — gray fill, bold black (matches existing P&L)
+                                            return
                                         c = wpl.cell(pr, _DC, sec)
                                         c.font = _MAPBD; c.fill = _GRAY
                                         for ci in range(_DC + 1, tot_col + 1):
                                             wpl.cell(pr, ci).font = _MAPPL
                                             wpl.cell(pr, ci).fill = _GRAY
                                         pr += 1
-
                                         grp_rows = []
                                         for gn in grps:
                                             wpl.cell(pr, _DC, gn).font = _MAPPL
@@ -864,8 +858,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                             el = get_column_letter(1 + num_mo)
                                             wpl.cell(pr, tot_col, f"=SUM({sl}{pr}:{el}{pr})").number_format = NUM_FMT
                                             pr += 1
-
-                                        # Section subtotal — bold, thin top border (matches existing)
                                         wpl.cell(pr, _DC, f"Total {sec}").font = _MAPBD
                                         for ci in range(_DC + 1, tot_col + 1):
                                             cl = get_column_letter(ci)
@@ -876,7 +868,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         rr[sec] = pr
                                         pr += 2
 
-                                    # Calculated rows — bold; Net Income gets thin-top + double-bottom
                                     def _calc(label, plus, minus, top_b=False, dbl_b=False):
                                         nonlocal pr
                                         lc = wpl.cell(pr, _DC, label)
@@ -905,8 +896,23 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     OI  = ["Other Income"]
                                     OE  = ["Other Expense", "Other"]
 
+                                    # Revenue + COS sections
+                                    _write_sec("Revenue")
+                                    _write_sec("COS")
+                                    _write_sec("Cost of Goods Sold")
+
+                                    # Gross Profit immediately after COS
                                     gp = _calc("Gross Profit", REV, COS)
                                     rr["_GP"] = gp
+                                    pr += 1  # blank row before next section
+
+                                    # Remaining sections
+                                    _write_sec("Sales & Marketing")
+                                    _write_sec("Operating Expenses")
+                                    _write_sec("Other Income")
+                                    _write_sec("Other Expense")
+                                    _write_sec("Other")
+
                                     if any(k in rr for k in SM):
                                         cm = _calc("Contribution Margin", ["_GP"], SM)
                                         rr["_CM"] = cm
