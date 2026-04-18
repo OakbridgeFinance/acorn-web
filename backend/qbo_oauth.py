@@ -51,6 +51,30 @@ def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
+_COMPANY_LIMITS = {"basic": 1, "pro": 5, "plus": 25}
+
+
+def _check_company_limit(user, supabase):
+    """Raise 403 if adding another company would exceed the plan limit."""
+    plan = (user.app_metadata or {}).get("plan", "basic")
+    if plan == "admin":
+        return
+    limit = _COMPANY_LIMITS.get(plan, 1)
+    existing = supabase.table("qbo_tokens").select(
+        "realm_id", count="exact"
+    ).eq("user_id", str(user.id)).execute()
+    count = existing.count if hasattr(existing, "count") and existing.count is not None else len(existing.data)
+    if count >= limit:
+        next_tier = {"basic": "Pro for up to 5", "pro": "Plus for up to 25", "plus": ""}
+        msg = f"{plan.capitalize()} plan is limited to {limit} QBO company{'s' if limit > 1 else ''}."
+        upgrade = next_tier.get(plan, "")
+        if upgrade:
+            msg += f" Upgrade to {upgrade}."
+        else:
+            msg += " Contact us for higher limits."
+        raise HTTPException(status_code=403, detail=msg)
+
+
 @router.get("/auth-url")
 def get_auth_url(user=Depends(get_current_user)):
     """Return the QBO OAuth authorization URL.
@@ -59,8 +83,10 @@ def get_auth_url(user=Depends(get_current_user)):
     requesting user, and includes it in the QBO authorize URL so the
     callback can verify the redirect originated from this flow.
     """
-    state = secrets.token_urlsafe(32)
     supabase = get_supabase()
+    _check_company_limit(user, supabase)
+
+    state = secrets.token_urlsafe(32)
     supabase.table("qbo_oauth_states").insert({
         "state":   state,
         "user_id": str(user.id),
@@ -101,6 +127,27 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
         raise HTTPException(status_code=400, detail="Invalid or expired state")
 
     user_id = record["user_id"]
+
+    # Check company limit (look up plan from auth.users via service role)
+    try:
+        _user_resp = supabase.auth.admin.get_user_by_id(user_id)
+        _plan = (_user_resp.user.app_metadata or {}).get("plan", "basic") if _user_resp.user else "basic"
+    except Exception:
+        _plan = "basic"
+    if _plan != "admin":
+        _limit = _COMPANY_LIMITS.get(_plan, 1)
+        _existing = supabase.table("qbo_tokens").select(
+            "realm_id", count="exact"
+        ).eq("user_id", user_id).execute()
+        _count = _existing.count if hasattr(_existing, "count") and _existing.count is not None else len(_existing.data)
+        # Don't count if reconnecting an existing company
+        _existing_realms = {r["realm_id"] for r in _existing.data}
+        if realmId not in _existing_realms and _count >= _limit:
+            supabase.table("qbo_oauth_states").delete().eq("state", state).execute()
+            return JSONResponse(
+                {"error": f"Company limit reached ({_count}/{_limit}). Upgrade your plan."},
+                status_code=403,
+            )
 
     # Exchange authorization code for tokens
     credentials = base64.b64encode(

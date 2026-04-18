@@ -1557,13 +1557,26 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 @router.post("/generate")
 def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
-    _parse_report_dates(body.start_date, body.end_date)
+    s, e = _parse_report_dates(body.start_date, body.end_date)
 
-    # Enforce plan-based feature gates
-    plan = (user.app_metadata or {}).get("plan", "starter")
-    if plan != "admin":
-        body.include_portal_data = False
+    plan = (user.app_metadata or {}).get("plan", "basic")
+
+    # Date range limit for basic plan (92 days ≈ 3 months)
+    if plan == "basic" and (e - s).days > 92:
+        raise HTTPException(
+            status_code=403,
+            detail="Basic plan is limited to a 3-month date range. Upgrade to Pro for unlimited date ranges.",
+        )
+
+    # Feature gates by plan
+    if plan == "basic":
+        body.dimension = "none"
+        body.selected_maps = []
         body.include_gl_detail = False
+        body.include_portal_data = False
+    elif plan in ("pro", "plus"):
+        body.include_portal_data = False
+    # admin: no restrictions
 
     job = create_job(
         user_id=str(user.id),

@@ -35,6 +35,11 @@
       <li class="client-placeholder">Loading...</li>
     </ul>
     <div class="sidebar-signout">
+      <div id="sidebarPlanInfo" style="padding:8px 10px;font-size:11px;color:rgba(255,255,255,0.5);border-top:1px solid rgba(255,255,255,0.07);margin-bottom:4px;">
+        <div style="font-weight:600;color:rgba(255,255,255,0.7);">Plan: <span id="sidebarPlanLabel"></span></div>
+        <div id="sidebarCompanyCount" style="margin-top:2px;"></div>
+        <a id="sidebarUpgradeLink" href="/acorn#pricing" style="color:#C97D60;font-size:11px;font-weight:600;text-decoration:none;display:none;">Upgrade \u2192</a>
+      </div>
       <button class="signout-btn" onclick="signOut()">Sign Out</button>
     </div>
   </nav>
@@ -161,10 +166,13 @@
           <div class="field-row" id="liteGlDimRow">
             <label class="field-label">IS GL Dimension</label>
             <select class="select" id="liteGlDimension">
+              <option value="none" selected>No Pivot</option>
               <option value="class">By Class</option>
               <option value="location">By Location</option>
-              <option value="none" selected>No Pivot (Class + Location columns)</option>
             </select>
+          </div>
+          <div id="dimUpgradeRow" style="display:none;font-size:12px;color:#C97D60;margin-top:-4px;margin-bottom:8px;">
+            Class/Location reporting is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade \u2192</a>
           </div>
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
@@ -178,6 +186,9 @@
             <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
               (GL data is summarized by default)
             </span>
+          </div>
+          <div id="glDetailUpgrade" style="display:none;font-size:12px;color:#C97D60;margin-top:6px;">
+            Full GL detail is available on Pro. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade \u2192</a>
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -412,13 +423,52 @@ let state = { realmId: null, companies: [], running: false, startTime: null, pol
 let _currentJobId = null;
 // Plan-based feature gating
 const PLAN_FEATURES = {
-  starter: [],
-  pro:     ['mapping'],
-  admin:   ['mapping', 'portal', 'gl_detail'],
+  basic:   [],
+  pro:     ['mapping', 'gl_detail', 'class_location'],
+  plus:    ['mapping', 'gl_detail', 'class_location'],
+  admin:   ['mapping', 'gl_detail', 'class_location', 'portal'],
 };
-let userPlan = localStorage.getItem('acorn_plan') || 'starter';
+const COMPANY_LIMITS = { basic: 1, pro: 5, plus: 25, admin: 9999 };
+let userPlan = localStorage.getItem('acorn_plan') || 'basic';
 function hasFeature(name) {
   return (PLAN_FEATURES[userPlan] || []).includes(name);
+}
+function _planLabel() {
+  const labels = { basic: 'Basic (Free)', pro: 'Pro', plus: 'Plus', admin: 'Admin' };
+  return labels[userPlan] || userPlan;
+}
+function _checkDateRange() {
+  if (userPlan !== 'basic') { _hideDateWarning(); return true; }
+  const s = $('liteDateStart')?.value;
+  const e = $('liteDateEnd')?.value;
+  if (!s || !e) return true;
+  const diffMs = new Date(e + 'T00:00:00') - new Date(s + 'T00:00:00');
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (diffDays > 92) {
+    _showDateWarning();
+    return false;
+  }
+  _hideDateWarning();
+  return true;
+}
+function _showDateWarning() {
+  let w = $('dateRangeWarning');
+  if (!w) {
+    w = document.createElement('div');
+    w.id = 'dateRangeWarning';
+    w.style.cssText = 'color:#C97D60;font-size:12px;margin-top:6px;';
+    w.innerHTML = 'Basic plan is limited to a 3-month date range. <a href="/acorn#pricing" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro \u2192</a>';
+    const bar = $('liteDateEnd')?.closest('.field-row') || $('liteDateEnd')?.parentElement;
+    if (bar) bar.after(w);
+  }
+  const btn = $('btnLiteGenerate');
+  if (btn) btn.disabled = true;
+}
+function _hideDateWarning() {
+  const w = $('dateRangeWarning');
+  if (w) w.remove();
+  const btn = $('btnLiteGenerate');
+  if (btn && !state.running) btn.disabled = false;
 }
 
 // ── Company list ────────────────────────────────────────────────────────────
@@ -459,18 +509,42 @@ function renderClientList() {
   if (!list) return;
   if (state.companies.length === 0) {
     list.innerHTML = '<li class="client-placeholder">No companies connected</li>';
-    return;
+  } else {
+    list.innerHTML = state.companies.map(c => `
+      <li class="client-item${c.realm_id === state.realmId ? ' active' : ''}"
+          style="display:flex;align-items:center;justify-content:space-between;"
+          onclick="selectClient('${escHtml(c.realm_id)}', '${escHtml(c.company_name)}')">
+        <span class="client-name">${escHtml(c.company_name)}</span>
+        <button style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;padding:2px 4px;flex-shrink:0;"
+                onclick="event.stopPropagation(); removeConnection('${escHtml(c.realm_id)}')"
+                title="Remove connection">\u2715</button>
+      </li>
+    `).join('');
   }
-  list.innerHTML = state.companies.map(c => `
-    <li class="client-item${c.realm_id === state.realmId ? ' active' : ''}"
-        style="display:flex;align-items:center;justify-content:space-between;"
-        onclick="selectClient('${escHtml(c.realm_id)}', '${escHtml(c.company_name)}')">
-      <span class="client-name">${escHtml(c.company_name)}</span>
-      <button style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:11px;cursor:pointer;padding:2px 4px;flex-shrink:0;"
-              onclick="event.stopPropagation(); removeConnection('${escHtml(c.realm_id)}')"
-              title="Remove connection">\u2715</button>
-    </li>
-  `).join('');
+  // Update company count on Add button and sidebar
+  const count = state.companies.length;
+  const limit = COMPANY_LIMITS[userPlan] || 1;
+  const addBtn = $('liteAddClientBtn');
+  if (addBtn) {
+    if (count >= limit && userPlan !== 'admin') {
+      addBtn.textContent = count + '/' + limit;
+      addBtn.disabled = true;
+      addBtn.style.opacity = '0.5';
+      addBtn.style.cursor = 'not-allowed';
+      const tips = { basic: 'Upgrade to Pro for up to 5 companies', pro: 'Upgrade to Plus for up to 25 companies', plus: 'Contact us for higher limits' };
+      addBtn.title = tips[userPlan] || '';
+    } else {
+      addBtn.textContent = '+ Add';
+      addBtn.disabled = false;
+      addBtn.style.opacity = '';
+      addBtn.style.cursor = 'pointer';
+      addBtn.title = '';
+    }
+  }
+  const compCount = $('sidebarCompanyCount');
+  if (compCount) {
+    compCount.textContent = count + ' of ' + (userPlan === 'admin' ? '\u221e' : limit) + ' companies';
+  }
 }
 
 async function removeConnection(realmId) {
@@ -708,6 +782,7 @@ function onPeriodChange() {
     if ($('arAgingDate')) $('arAgingDate').textContent = '(as of ' + formatted + ')';
     if ($('apAgingDate')) $('apAgingDate').textContent = '(as of ' + formatted + ')';
   }
+  _checkDateRange();
 }
 
 // ── Mapping selection ────────────────────────────────────────────────────────
@@ -1062,7 +1137,7 @@ let _mapsQboRefreshedRealm = null;
 function _getRealmId() { return state.realmId; }
 
 function showMappingPage() {
-  if (!hasFeature('mapping')) { alert('Mapping requires a Pro or Admin plan.'); return; }
+  if (!hasFeature('mapping')) { alert('Mapping requires a Pro or Plus plan.'); return; }
   if (!state.realmId) { alert('Select a client first.'); return; }
   $('pageLite').classList.remove('active'); $('pageLite').classList.add('hidden');
   $('pageAccountMaps').classList.add('active'); $('pageAccountMaps').classList.remove('hidden');
@@ -1789,14 +1864,29 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshTokenIfNeeded();
   loadCompanies();
 
-  // Show portal checkbox for admins
   // Apply plan-based visibility
   const portalRow = $('portalDataRow');
   if (portalRow) portalRow.style.display = hasFeature('portal') ? 'flex' : 'none';
   const glDetailRow = $('glDetailRow');
   if (glDetailRow) glDetailRow.style.display = hasFeature('gl_detail') ? 'flex' : 'none';
+  const glDetailUpgrade = $('glDetailUpgrade');
+  if (glDetailUpgrade) glDetailUpgrade.style.display = hasFeature('gl_detail') ? 'none' : 'block';
   const mappingCard = $('mappingSelectionCard');
   if (mappingCard) mappingCard.style.display = hasFeature('mapping') ? '' : 'none';
+  const dimRow = $('liteGlDimRow');
+  const dimUpgrade = $('dimUpgradeRow');
+  if (dimRow) dimRow.style.display = hasFeature('class_location') ? '' : 'none';
+  if (dimUpgrade) dimUpgrade.style.display = hasFeature('class_location') ? 'none' : 'block';
+
+  // Plan display in sidebar
+  const planLabel = $('sidebarPlanLabel');
+  if (planLabel) planLabel.textContent = _planLabel();
+  const upgradeLink = $('sidebarUpgradeLink');
+  if (upgradeLink) upgradeLink.style.display = (userPlan === 'basic') ? '' : 'none';
+
+  // Date range validation for basic
+  $('liteDateStart')?.addEventListener('change', _checkDateRange);
+  $('liteDateEnd')?.addEventListener('change', _checkDateRange);
 
   // Date validation listeners
   $('liteDateStart')?.addEventListener('change', function() {
