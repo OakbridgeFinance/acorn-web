@@ -1989,3 +1989,25 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .bk-empty-icon { font-size: 36px; margin-bottom: 12px; }
 .bk-empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 .bk-empty-sub { font-size: 13px; color: var(--text-light); }
+
+/* ── Toast notifications ──────────────────────────────────────────────────── */
+#toastContainer { position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; min-width: 280px; max-width: 420px; padding: 12px 40px 12px 14px; border-radius: 8px; font-family: 'Source Sans 3', sans-serif; font-size: 13px; font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,0.12); position: relative; animation: toastIn 0.2s ease-out; }
+.toast--success { background: #ECFDF5; color: #047857; border: 1px solid #059669; }
+.toast--error   { background: #FEF2F2; color: #991B1B; border: 1px solid #CC0000; }
+.toast--warning { background: #FFFBEB; color: #92400E; border: 1px solid #D97706; }
+.toast-close { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 18px; cursor: pointer; color: inherit; opacity: 0.6; line-height: 1; padding: 2px 6px; }
+.toast-close:hover { opacity: 1; }
+@keyframes toastIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ── Modal dialog ─────────────────────────────────────────────────────────── */
+#modalBackdrop { position: fixed; inset: 0; background: rgba(15,42,44,0.55); z-index: 9998; display: none; align-items: center; justify-content: center; }
+#modalBackdrop.visible { display: flex; }
+.modal-card { background: #fff; border-radius: 10px; padding: 20px 22px; max-width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); font-family: 'Source Sans 3', sans-serif; }
+.modal-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.modal-body  { font-size: 13px; color: var(--text-light); margin-bottom: 16px; line-height: 1.5; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-btn { padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; border: 1px solid transparent; font-family: inherit; }
+.modal-btn--cancel  { background: #fff; color: var(--text); border-color: var(--border); }
+.modal-btn--confirm { background: var(--accent); color: #fff; }
+.modal-btn--danger  { background: #CC0000; color: #fff; }

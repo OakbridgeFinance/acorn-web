@@ -1,19 +1,37 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "core"))
-import os
+
+import base64
+import calendar
 import logging
-import threading
+import os
+import re
 import tempfile
+import threading
+import traceback
 from datetime import datetime, date, timedelta, timezone
+
+import httpx
+import openpyxl
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.formatting.rule import CellIsRule
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 from fastapi import APIRouter, Depends, HTTPException
-logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from supabase import create_client
+
 from backend.auth import get_current_user
 from backend.jobs import create_job, update_job, get_job, get_user_jobs
+from backend.excel_formatter import apply_global_formatting
+from backend.portal_prep import build_portal_flat_tabs
 from dotenv import load_dotenv
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 SUPABASE_URL         = os.getenv("SUPABASE_URL")
@@ -121,18 +139,15 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
         access_token  = tokens["access_token"]
         refresh_token = tokens["refresh_token"]
 
-        import re as _re
-
         # Always refresh QBO token before running. If the refresh fails the
         # access token is almost certainly revoked/expired — don't press on
         # with stale creds and produce cryptic downstream errors.
         _RECONNECT_MSG = "QBO connection expired. Please reconnect and try again."
         try:
-            import base64, httpx as _httpx
             client_id     = os.getenv("QBO_CLIENT_ID", "")
             client_secret = os.getenv("QBO_CLIENT_SECRET", "")
             credentials   = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-            refresh_resp  = _httpx.post(
+            refresh_resp  = httpx.post(
                 "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
                 headers={
                     "Authorization": f"Basic {credentials}",
@@ -166,7 +181,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         _check_cancel(job_id)
 
-        clean_name = _re.sub(r'[^\w]', '_', company_name).strip('_').upper()
+        clean_name = re.sub(r'[^\w]', '_', company_name).strip('_').upper()
         file_name  = f"{clean_name}_{start_date[:7]}_{end_date[:7]}.xlsx"
 
         def progress_fn(msg):
@@ -197,7 +212,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             # ── Append mapping columns ────────────────────────────────
             if selected_maps:
                 try:
-                    logger.info(f"Applying maps: {selected_maps}")
+                    logger.debug(f"Applying {len(selected_maps)} map(s)")
                     mapping_result = supabase.table("mappings").select("account_maps").eq(
                         "user_id", user_id
                     ).eq("realm_id", realm_id).execute()
@@ -207,15 +222,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                      if m.get("map_name", "") in selected_maps]
 
                     if maps_to_apply:
-                        import openpyxl as _ox
-                        from openpyxl.styles import Font, PatternFill, Alignment
-                        from openpyxl.utils import get_column_letter
-                        from openpyxl.formatting.rule import CellIsRule
-                        from collections import defaultdict
-                        from datetime import datetime as _dt
-                        import calendar as _cal
-
-                        wb = _ox.load_workbook(file_path)
+                        wb = openpyxl.load_workbook(file_path)
 
                         if "Normal" in wb.style_names:
                             wb._named_styles["Normal"].font = Font(name="Arial", size=10)
@@ -433,14 +440,14 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         month_dates[mk] = mv
                                 else:
                                     try:
-                                        mk = _dt.strptime(str(mv)[:7], "%Y-%m").strftime("%Y-%m")
+                                        mk = datetime.strptime(str(mv)[:7], "%Y-%m").strftime("%Y-%m")
                                     except Exception:
                                         mk = str(mv)[:7]
                                 if mk not in month_keys:
                                     month_keys.append(mk)
                                 if mk not in month_display:
                                     try:
-                                        month_display[mk] = _dt.strptime(mk, "%Y-%m").strftime("%b %Y")
+                                        month_display[mk] = datetime.strptime(mk, "%Y-%m").strftime("%b %Y")
                                     except Exception:
                                         month_display[mk] = mk
                             month_keys = sorted(month_keys)
@@ -504,8 +511,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         date_f = f"DATE({mv.year},{mv.month},{mv.day})"
                                     else:
                                         try:
-                                            d      = _dt.strptime(mk, "%Y-%m")
-                                            last   = _cal.monthrange(d.year, d.month)[1]
+                                            d      = datetime.strptime(mk, "%Y-%m")
+                                            last   = calendar.monthrange(d.year, d.month)[1]
                                             date_f = f"DATE({d.year},{d.month},{last})"
                                         except Exception:
                                             date_f = f'"{mk}"'
@@ -672,7 +679,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if mv and hasattr(mv, 'year'):
                                     return f"DATE({mv.year},{mv.month},{mv.day})"
                                 try:
-                                    d = _dt.strptime(mk[:10], "%Y-%m-%d")
+                                    d = datetime.strptime(mk[:10], "%Y-%m-%d")
                                     return f"DATE({d.year},{d.month},{d.day})"
                                 except Exception:
                                     return f'"{mk}"'
@@ -808,7 +815,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                             # ── Mapped P&L and BS tabs ──────────────────────
                             try:
-                                from openpyxl.styles import Border, Side
                                 _THIN  = Side(style="thin")
                                 _DBLE  = Side(style="double")
                                 _MAPPL = Font(name="Arial", size=10)
@@ -822,8 +828,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     if mv and hasattr(mv, 'year'):
                                         return f"DATE({mv.year},{mv.month},{mv.day})"
                                     try:
-                                        d = _dt.strptime(mk, "%Y-%m")
-                                        last = _cal.monthrange(d.year, d.month)[1]
+                                        d = datetime.strptime(mk, "%Y-%m")
+                                        last = calendar.monthrange(d.year, d.month)[1]
                                         return f"DATE({d.year},{d.month},{last})"
                                     except Exception:
                                         return f'"{mk}"'
@@ -1248,11 +1254,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     wbs.freeze_panes = "A6"
 
                             except Exception as _mpt_e:
-                                import traceback
-                                logger.warning(f"Mapped P&L/BS tabs failed for '{map_name}': {_mpt_e}\n{traceback.format_exc()}")
+                                logger.warning(
+                                    f"Mapped P&L/BS tabs failed for '{map_name}': "
+                                    f"{_mpt_e}\n{traceback.format_exc()}"
+                                )
 
-                        # Column widths for Map Summary
-                        ws_sum.column_dimensions["A"].width = 0.63
+                        # Column widths for Map Summary (final global Arial-10 +
+                        # buffer-col + freeze pass happens once at the end).
                         _max_b = 0
                         for _r in range(5, ws_sum.max_row + 1):
                             _v = ws_sum.cell(_r, _DC).value
@@ -1261,24 +1269,11 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ws_sum.column_dimensions[get_column_letter(_DC)].width = min(max(_max_b + 4, 30), 50)
                         for ci in range(_DC + 1, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
-                        ws_sum.freeze_panes = "A6"
-
-                        for _ws in wb.worksheets:
-                            for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
-                                for _c in _row:
-                                    if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
-                                        _c.font = Font(
-                                            name="Arial", size=10,
-                                            bold=_c.font.bold, italic=_c.font.italic,
-                                            color=_c.font.color, underline=_c.font.underline,
-                                            strikethrough=_c.font.strikethrough,
-                                        )
 
                         wb.save(file_path)
                         progress_fn("  Mapping columns and Map Summary written.")
 
                 except Exception as e:
-                    import traceback
                     logger.error(f"Mapping error: {e}\n{traceback.format_exc()}")
                     progress_fn(f"  WARNING: Mapping failed — {e}")
 
@@ -1286,9 +1281,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             if include_portal_data:
                 try:
                     progress_fn("  Building portal data tabs...")
-                    import openpyxl as _ox_p
-                    from backend.portal_prep import build_portal_flat_tabs
-                    wb_p = _ox_p.load_workbook(file_path)
+                    wb_p = openpyxl.load_workbook(file_path)
 
                     # Read IS GL Summary and BS GL Summary rows from the workbook
                     def _read_tab_rows(wb, tab_name):
@@ -1303,28 +1296,23 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     p_is, p_bs = build_portal_flat_tabs(is_sum, bs_bal)
 
                     if p_is:
-                        from openpyxl.styles import Font as _Fp, PatternFill as _PFp, Alignment as _Alp
-                        from openpyxl.utils import get_column_letter as _gclp
-                        from datetime import datetime as _dtp, date as _datep
                         _PORTAL_NAMES = {"Portal_IS_Flat": "Portal Income Statement",
                                          "Portal_BS_Flat": "Portal Balance Sheet"}
+                        hf = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+                        hb = PatternFill("solid", fgColor="337E8D")
+                        pf = Font(name="Arial", size=10)
                         for tab_name, rows in [("Portal_IS_Flat", p_is), ("Portal_BS_Flat", p_bs)]:
                             if not rows: continue
                             ws = wb_p.create_sheet(tab_name)
-                            ws.sheet_view.showGridLines = False
-                            ws.cell(1, 1, company_name).font = _Fp(name="Arial", size=10, bold=True)
-                            ws.cell(2, 1, _PORTAL_NAMES.get(tab_name, tab_name)).font = _Fp(name="Arial", size=10)
-                            hf = _Fp(name="Arial", size=10, bold=True, color="FFFFFF")
-                            hb = _PFp("solid", fgColor="337E8D")
-                            pf = _Fp(name="Arial", size=10)
-                            ws.column_dimensions["A"].width = 0.63
+                            ws.cell(1, 1, company_name).font = Font(name="Arial", size=10, bold=True)
+                            ws.cell(2, 1, _PORTAL_NAMES.get(tab_name, tab_name)).font = pf
                             for ci, v in enumerate(rows[0], 2):
                                 c = ws.cell(5, ci, v); c.font = hf; c.fill = hb
                             for ri, row in enumerate(rows[1:], 6):
                                 for ci, v in enumerate(row, 2):
-                                    if isinstance(v, _dtp): v = v.date()
+                                    if isinstance(v, datetime): v = v.date()
                                     c = ws.cell(ri, ci, v); c.font = pf
-                                    if isinstance(v, _datep):
+                                    if isinstance(v, date):
                                         c.number_format = "M/D/YYYY"
                                     elif isinstance(v, (int, float)):
                                         c.number_format = '#,##0.00_);(#,##0.00);"-"??;@'
@@ -1334,28 +1322,19 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                 if col_idx < 2:
                                     continue
                                 mx = 0
-                                cl = _gclp(col_idx)
+                                cl = get_column_letter(col_idx)
                                 for cell in col_cells:
                                     if cell.row < 5:
                                         continue
                                     try:
                                         cl2 = len(str(cell.value)) if cell.value is not None else 0
                                         if cl2 > mx: mx = cl2
-                                    except: pass
+                                    except Exception:
+                                        pass
                                 ws.column_dimensions[cl].width = min(mx + 4, 60)
-                            ws.freeze_panes = "A6"
 
-                    for _ws in wb_p.worksheets:
-                        for _row in _ws.iter_rows(min_row=1, max_row=_ws.max_row, max_col=_ws.max_column):
-                            for _c in _row:
-                                if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
-                                    _c.font = Font(
-                                        name="Arial", size=10,
-                                        bold=_c.font.bold, italic=_c.font.italic,
-                                        color=_c.font.color, underline=_c.font.underline,
-                                        strikethrough=_c.font.strikethrough,
-                                    )
-
+                    # Global Arial-10 + buffer-col + freeze pass happens once
+                    # at the end of the pipeline, not here.
                     wb_p.save(file_path)
                     progress_fn("  Portal data tabs added.")
                 except Exception as pe:
@@ -1365,12 +1344,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
             # ── Final restructuring: Summary tab, dividers, tab order ──
             try:
                 progress_fn("  Finalizing workbook structure...")
-                import openpyxl as _ox_fin
-                from openpyxl.styles import Font as _Ff, PatternFill as _PFf, Alignment as _Alf
-                from openpyxl.utils import get_column_letter as _gclf
-                from pathlib import Path as _Pf
-
-                wb_fin = _ox_fin.load_workbook(file_path)
+                wb_fin = openpyxl.load_workbook(file_path)
 
                 # ── Rename tabs ──
                 if "Validation" in wb_fin.sheetnames:
@@ -1470,13 +1444,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 ws_s.sheet_properties.tabColor = "C97D60"
                 ws_s.column_dimensions["A"].width = 0.63
 
-                _SF  = _Ff(name="Arial", size=10)
-                _SFB = _Ff(name="Arial", size=10, bold=True)
-                _SFG = _Ff(name="Arial", size=10, color="5A6B6D")
-                _SFI = _Ff(name="Arial", size=10, italic=True, color="5A6B6D")
-                _SHF = _Ff(name="Arial", size=10, bold=True, color="FFFFFF")
-                _SHB = _PFf("solid", fgColor="337E8D")
-                _SLK = _Ff(name="Arial", size=10, color="0563C1", underline="single")
+                _SF  = Font(name="Arial", size=10)
+                _SFB = Font(name="Arial", size=10, bold=True)
+                _SFG = Font(name="Arial", size=10, color="5A6B6D")
+                _SFI = Font(name="Arial", size=10, italic=True, color="5A6B6D")
+                _SHF = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+                _SHB = PatternFill("solid", fgColor="337E8D")
+                _SLK = Font(name="Arial", size=10, color="0563C1", underline="single")
                 _NUM = '#,##0.00_);(#,##0.00);"-"??;@'
 
                 def _sec_bar(r, text):
@@ -1485,22 +1459,16 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                     ws_s.cell(r, 2, text).font = _SHF
 
                 # Row 1: company name (A1 overflows) + logo at D1
-                ws_s.cell(1, 1, company_name).font = _Ff(name="Arial", size=14, bold=True, color="07393C")
+                ws_s.cell(1, 1, company_name).font = Font(name="Arial", size=14, bold=True, color="07393C")
                 try:
-                    import os as _os_logo
-                    from openpyxl.drawing.image import Image as _XlImg
                     _logo_candidates = [
-                        _os_logo.path.join(_os_logo.path.dirname(_os_logo.path.abspath(__file__)), "assets", "Logo-F23-transparent.png"),
-                        _os_logo.path.join(_os_logo.path.dirname(__file__), "assets", "Logo-F23-transparent.png"),
-                        _os_logo.path.join("backend", "assets", "Logo-F23-transparent.png"),
+                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "Logo-F23-transparent.png"),
+                        os.path.join(os.path.dirname(__file__), "assets", "Logo-F23-transparent.png"),
+                        os.path.join("backend", "assets", "Logo-F23-transparent.png"),
                     ]
-                    _logo_path = None
-                    for _lp in _logo_candidates:
-                        if _os_logo.path.exists(_lp):
-                            _logo_path = _lp
-                            break
+                    _logo_path = next((p for p in _logo_candidates if os.path.exists(p)), None)
                     if _logo_path:
-                        img = _XlImg(_logo_path)
+                        img = XLImage(_logo_path)
                         _ratio = img.height / max(img.width, 1)
                         img.width = 200; img.height = int(200 * _ratio)
                         ws_s.add_image(img, "D1")
@@ -1512,13 +1480,12 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                 # Row 5: Report Summary bar
                 _sec_bar(5, "Report Summary")
-                from datetime import datetime as _dtf
                 ws_s.cell(6, 2, f"Report Period: {start_date} \u2014 {end_date}").font = _SFG
                 try:
                     from zoneinfo import ZoneInfo
-                    _now = _dtf.now(ZoneInfo("America/Chicago"))
+                    _now = datetime.now(ZoneInfo("America/Chicago"))
                 except Exception:
-                    _now = _dtf.now()
+                    _now = datetime.now()
                 try:
                     _time_s = _now.strftime("%-I:%M %p")
                 except ValueError:
@@ -1531,7 +1498,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 ws_s.cell(10, 2, "QBO Reports").font = _SFB
 
                 _val_ref_col = "D"
-                _SGR = _Ff(name="Arial", size=10, color="276221")
+                _SGR = Font(name="Arial", size=10, color="276221")
                 if "GL Summary Validation" in wb_fin.sheetnames:
                     ws_s.cell(11, 2, "Overall Result").font = _SF
                     ws_s.cell(11, 4, f"='GL Summary Validation'!{_val_ref_col}6").font = _SGR
@@ -1582,7 +1549,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         ("Total Equity", _bs_diff_rs.get("Total Equity"), bs_tn),
                         ("Assets = Liabilities + Equity", _bs_diff_rs.get("Balance Check"), bs_tn),
                     ]
-                    _SRD = _Ff(name="Arial", size=10, color="CC0000")
+                    _SRD = Font(name="Arial", size=10, color="CC0000")
                     for chk_lbl, chk_r, chk_tab in _checks:
                         ws_s.cell(_sr, 2, chk_lbl).font = _SF
                         if chk_r:
@@ -1643,24 +1610,13 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 for i, tn in enumerate(_final):
                     wb_fin.move_sheet(tn, offset=i - wb_fin.sheetnames.index(tn))
 
-                # Arial 10 enforcement on ALL tabs (final pass before save)
-                for _ws in wb_fin.worksheets:
-                    for _row in _ws.iter_rows(min_row=1, max_row=max(_ws.max_row, 1), max_col=max(_ws.max_column, 1)):
-                        for _c in _row:
-                            if _c.font and (_c.font.name != "Arial" or _c.font.size != 10):
-                                if _c.font.size and _c.font.size > 10:
-                                    continue
-                                _c.font = _Ff(
-                                    name="Arial", size=10,
-                                    bold=_c.font.bold, italic=_c.font.italic,
-                                    color=_c.font.color, underline=_c.font.underline,
-                                    strikethrough=_c.font.strikethrough,
-                                )
+                # Single global formatting pass: Arial 10 enforcement,
+                # buffer col A, freeze panes, hidden gridlines.
+                apply_global_formatting(wb_fin)
 
                 wb_fin.save(file_path)
                 progress_fn("  Workbook restructured.")
             except Exception as _rs_err:
-                import traceback
                 logger.warning(f"Workbook restructuring failed: {_rs_err}\n{traceback.format_exc()}")
                 progress_fn(f"  WARNING: Restructuring failed — {_rs_err}")
 

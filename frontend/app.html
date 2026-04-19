@@ -12,6 +12,18 @@
 </head>
 <body>
 
+<div id="toastContainer"></div>
+<div id="modalBackdrop" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-title" id="modalTitle">Confirm</div>
+    <div class="modal-body"  id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn--cancel"  id="modalCancel">Cancel</button>
+      <button class="modal-btn modal-btn--confirm" id="modalOk">OK</button>
+    </div>
+  </div>
+</div>
+
 <div class="app-shell">
 
   <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
@@ -385,13 +397,73 @@ const show = el => { if (typeof el === 'string') el = $(el); if (el) el.classLis
 const hide = el => { if (typeof el === 'string') el = $(el); if (el) el.classList.add('hidden'); };
 const escHtml = s => s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : '';
 
+// ── Toast + modal (brand-styled replacements for alert/confirm) ──────────────
+function showToast(message, type) {
+  const container = document.getElementById('toastContainer');
+  if (!container) { console.log('[toast]', type, message); return; }
+  type = type === 'success' || type === 'error' || type === 'warning' ? type : 'success';
+  const el = document.createElement('div');
+  el.className = 'toast toast--' + type;
+  el.innerHTML =
+    '<span>' + escHtml(message) + '</span>' +
+    '<button class="toast-close" aria-label="Dismiss">\u00d7</button>';
+  const dismiss = () => { if (el.parentNode) el.parentNode.removeChild(el); };
+  el.querySelector('.toast-close').addEventListener('click', dismiss);
+  container.appendChild(el);
+  const ttl = type === 'error' ? 8000 : 5000;
+  setTimeout(dismiss, ttl);
+}
+
+function confirmDialog(message, opts) {
+  opts = opts || {};
+  return new Promise(resolve => {
+    const backdrop = document.getElementById('modalBackdrop');
+    const title    = document.getElementById('modalTitle');
+    const body     = document.getElementById('modalBody');
+    const okBtn    = document.getElementById('modalOk');
+    const cancelBtn = document.getElementById('modalCancel');
+    if (!backdrop || !body) { resolve(window.confirm(message)); return; }
+
+    title.textContent   = opts.title   || 'Confirm';
+    body.textContent    = message;
+    okBtn.textContent   = opts.okLabel || 'Confirm';
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    okBtn.classList.toggle('modal-btn--danger',  !!opts.danger);
+    okBtn.classList.toggle('modal-btn--confirm', !opts.danger);
+
+    const cleanup = (result) => {
+      backdrop.classList.remove('visible');
+      okBtn.onclick = cancelBtn.onclick = backdrop.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') cleanup(false);
+      else if (e.key === 'Enter') cleanup(true);
+    };
+
+    okBtn.onclick       = () => cleanup(true);
+    cancelBtn.onclick   = () => cleanup(false);
+    backdrop.onclick    = (e) => { if (e.target === backdrop) cleanup(false); };
+    document.addEventListener('keydown', onKey);
+    backdrop.classList.add('visible');
+  });
+}
+
 // ── Token refresh ───────────────────────────────────────────────────────────
-let _lastRefreshAttempt = 0;
+// Two timestamps: successes apply a 5-minute cooldown (no point hitting the
+// server if we just got a fresh token). Failures allow immediate retry on the
+// next API call so a transient network blip doesn't lock us out.
+let _lastRefreshSuccess = 0;
+let _refreshInFlight    = null;
+const _REFRESH_COOLDOWN_MS = 300000;
+
 async function refreshTokenIfNeeded() {
-  // Cooldown: only attempt refresh once per 5 minutes
   const now = Date.now();
-  if (now - _lastRefreshAttempt < 300000) return true;
-  _lastRefreshAttempt = now;
+  if (now - _lastRefreshSuccess < _REFRESH_COOLDOWN_MS) return true;
+
+  // Coalesce concurrent callers onto a single refresh request.
+  if (_refreshInFlight) return _refreshInFlight;
 
   const refreshToken = localStorage.getItem('acorn_refresh_token');
   if (!refreshToken) {
@@ -399,34 +471,41 @@ async function refreshTokenIfNeeded() {
     return false;
   }
 
-  try {
-    const res = await fetch(API + '/api/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (!res.ok) {
-      console.warn('Token refresh failed:', res.status);
-      if (res.status === 401) {
-        console.warn('Session expired — forcing logout');
-        signOut();
-        return false;
+  _refreshInFlight = (async () => {
+    try {
+      const res = await fetch(API + '/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) {
+        console.warn('Token refresh failed:', res.status);
+        if (res.status === 401) {
+          console.warn('Session expired — forcing logout');
+          signOut();
+          return false;
+        }
+        return false;  // transient — next call tries again immediately
       }
+      const data = await res.json();
+      localStorage.setItem('acorn_access_token', data.access_token);
+      localStorage.setItem('acorn_refresh_token', data.refresh_token);
+      if (data.plan) {
+        localStorage.setItem('acorn_plan', data.plan);
+        localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
+        localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
+        userPlan = data.plan;
+      }
+      _lastRefreshSuccess = Date.now();
+      return true;
+    } catch (e) {
       return false;
+    } finally {
+      _refreshInFlight = null;
     }
-    const data = await res.json();
-    localStorage.setItem('acorn_access_token', data.access_token);
-    localStorage.setItem('acorn_refresh_token', data.refresh_token);
-    if (data.plan) {
-      localStorage.setItem('acorn_plan', data.plan);
-      localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
-      localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
-      userPlan = data.plan;
-    }
-    return true;
-  } catch (e) {
-    return false;
-  }
+  })();
+
+  return _refreshInFlight;
 }
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -616,7 +695,11 @@ function renderClientList() {
 }
 
 async function removeConnection(realmId) {
-  if (!confirm('Remove this QuickBooks connection? You can reconnect at any time.')) return;
+  const ok = await confirmDialog(
+    'Remove this QuickBooks connection? You can reconnect at any time.',
+    { title: 'Remove connection', okLabel: 'Remove', danger: true },
+  );
+  if (!ok) return;
   try {
     const res = await fetch(API + '/api/qbo/companies/' + encodeURIComponent(realmId), {
       method: 'DELETE',
@@ -625,11 +708,12 @@ async function removeConnection(realmId) {
     if (res.ok) {
       if (state.realmId === realmId) { state.realmId = null; goBack(); }
       await loadCompanies();
+      showToast('Connection removed.', 'success');
     } else {
-      alert('Failed to remove connection.');
+      showToast('Failed to remove connection.', 'error');
     }
   } catch (e) {
-    alert('Error: ' + e.message);
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
@@ -727,7 +811,7 @@ async function connectQBO() {
       window.location.href = data.auth_url;
     }
   } catch(e) {
-    alert('Failed to start QBO connection: ' + e.message);
+    showToast('Failed to start QBO connection: ' + e.message, 'error');
   }
 }
 
@@ -782,7 +866,7 @@ async function fullReauthorize() {
       window.location.href = data.auth_url;
     }
   } catch (e) {
-    alert('Could not start QBO authorization. Please try again.');
+    showToast('Could not start QBO authorization. Please try again.', 'error');
   }
 }
 
@@ -893,17 +977,21 @@ function getSelectedMaps() {
 // ── Generate ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!state.realmId) return;
+  // Belt-and-braces guard: the button is disabled via setRunning(true) while
+  // a job is in flight, but block here too in case a keyboard shortcut or a
+  // second window races past that check.
+  if (state.running) return;
   await refreshTokenIfNeeded();
 
   const startDate = val('liteDateStart');
   const endDate   = val('liteDateEnd');
 
   if (!startDate || !endDate) {
-    alert('Please enter both a start date and end date.');
+    showToast('Please enter both a start date and end date.', 'warning');
     return;
   }
   if (startDate >= endDate) {
-    alert('Start date must be before end date.');
+    showToast('Start date must be before end date.', 'warning');
     return;
   }
 
@@ -1226,8 +1314,8 @@ let _mapsQboRefreshedRealm = null;
 function _getRealmId() { return state.realmId; }
 
 function showMappingPage() {
-  if (!hasFeature('mapping')) { alert('Mapping requires a Pro or Plus plan.'); return; }
-  if (!state.realmId) { alert('Select a client first.'); return; }
+  if (!hasFeature('mapping')) { showToast('Mapping requires a Pro or Plus plan.', 'warning'); return; }
+  if (!state.realmId) { showToast('Select a client first.', 'warning'); return; }
   $('pageLite').classList.remove('active'); $('pageLite').classList.add('hidden');
   $('pageAccountMaps').classList.add('active'); $('pageAccountMaps').classList.remove('hidden');
   const c = state.companies.find(c => c.realm_id === state.realmId);
@@ -1821,7 +1909,7 @@ function _buildMapObj() {
 
 async function mapsSaveEditor() {
   const mapName = (val('mapsEditorName') || '').trim();
-  if (!mapName) { alert('Map name is required.'); return; }
+  if (!mapName) { showToast('Map name is required.', 'warning'); return; }
   const mapObj = _buildMapObj();
 
   // Validate all groups have name AND section
@@ -1852,7 +1940,7 @@ async function mapsSaveEditor() {
       if (ig.missingSection) issues.push('statement section is required');
       return 'Group ' + (ig.idx + 1) + ' "' + (ig.grp.group_name || 'unnamed') + '": ' + issues.join(', ');
     });
-    alert('Cannot save \u2014 please fix the following:\n\n' + messages.join('\n'));
+    showToast('Cannot save — ' + messages.join('; '), 'error');
     return;
   }
 
@@ -1871,9 +1959,11 @@ async function mapsSaveEditor() {
   const changed = JSON.stringify({ map_name: mapObj.map_name, groups: mapObj.groups })
                !== JSON.stringify({ map_name: original.map_name, groups: original.groups });
   if (!changed) { mapsCloseEditor(); return; }
-  if (confirm('Save changes to \'' + mapObj.map_name + '\'?')) {
-    await _doSaveMap(mapObj, false);
-  }
+  const save = await confirmDialog(
+    'Save changes to \'' + mapObj.map_name + '\'?',
+    { title: 'Save map', okLabel: 'Save' },
+  );
+  if (save) await _doSaveMap(mapObj, false);
 }
 
 async function _doSaveMap(mapObj, asNew) {
@@ -1902,7 +1992,7 @@ async function _doSaveMap(mapObj, asNew) {
     // Refresh mapping checkboxes on extraction page
     if (realmId) loadMappingSelection(realmId);
   } catch (e) {
-    alert('Save failed: ' + e.message);
+    showToast('Save failed: ' + e.message, 'error');
   }
 }
 
@@ -1919,14 +2009,18 @@ async function mapsDuplicate(idx) {
     });
     mapsRenderList();
   } catch (e) {
-    alert('Duplicate failed: ' + e.message);
+    showToast('Duplicate failed: ' + e.message, 'error');
   }
 }
 
 async function mapsDelete(idx) {
   const m = mapsState.maps[idx];
   const name = m?.map_name || 'this map';
-  if (!confirm('Delete \'' + name + '\'? This cannot be undone.')) return;
+  const ok = await confirmDialog(
+    'Delete \'' + name + '\'? This cannot be undone.',
+    { title: 'Delete map', okLabel: 'Delete', danger: true },
+  );
+  if (!ok) return;
   const allMaps = [...mapsState.maps];
   allMaps.splice(idx, 1);
   const realmId = _getRealmId();
@@ -1939,7 +2033,7 @@ async function mapsDelete(idx) {
     mapsState.maps = allMaps;
     mapsRenderList();
   } catch (e) {
-    alert('Delete failed: ' + e.message);
+    showToast('Delete failed: ' + e.message, 'error');
   }
 }
 
