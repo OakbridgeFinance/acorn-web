@@ -5,7 +5,7 @@ import os
 import logging
 import threading
 import tempfile
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
@@ -123,7 +123,10 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
         import re as _re
 
-        # Always refresh QBO token before running
+        # Always refresh QBO token before running. If the refresh fails the
+        # access token is almost certainly revoked/expired — don't press on
+        # with stale creds and produce cryptic downstream errors.
+        _RECONNECT_MSG = "QBO connection expired. Please reconnect and try again."
         try:
             import base64, httpx as _httpx
             client_id     = os.getenv("QBO_CLIENT_ID", "")
@@ -139,22 +142,27 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 data={"grant_type": "refresh_token", "refresh_token": refresh_token},
                 timeout=30,
             )
-            if refresh_resp.status_code == 200:
-                nt            = refresh_resp.json()
-                access_token  = nt["access_token"]
-                refresh_token = nt.get("refresh_token", refresh_token)
-                new_expiry    = (datetime.utcnow() + timedelta(
-                    seconds=nt.get("expires_in", 3600))).isoformat()
-                supabase.table("qbo_tokens").update({
-                    "access_token":  access_token,
-                    "refresh_token": refresh_token,
-                    "expires_at":    new_expiry,
-                    "updated_at":    datetime.utcnow().isoformat(),
-                }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
-            else:
-                logger.warning(f"QBO token refresh failed: {refresh_resp.status_code}")
         except Exception as _rfe:
             logger.warning(f"QBO token refresh error: {_rfe}")
+            update_job(job_id, status="failed", error=_RECONNECT_MSG)
+            return
+
+        if refresh_resp.status_code != 200:
+            logger.warning(f"QBO token refresh failed: {refresh_resp.status_code}")
+            update_job(job_id, status="failed", error=_RECONNECT_MSG)
+            return
+
+        nt            = refresh_resp.json()
+        access_token  = nt["access_token"]
+        refresh_token = nt.get("refresh_token", refresh_token)
+        new_expiry    = (datetime.now(timezone.utc) + timedelta(
+            seconds=nt.get("expires_in", 3600))).isoformat()
+        supabase.table("qbo_tokens").update({
+            "access_token":  access_token,
+            "refresh_token": refresh_token,
+            "expires_at":    new_expiry,
+            "updated_at":    datetime.now(timezone.utc).isoformat(),
+        }).eq("user_id", user_id).eq("realm_id", realm_id).execute()
 
         _check_cancel(job_id)
 
@@ -1710,15 +1718,25 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
             detail="Basic plan is limited to a 3-month date range. Upgrade to Pro for unlimited date ranges.",
         )
 
-    # Feature gates by plan
-    if plan == "basic":
-        body.dimension = "none"
-        body.selected_maps = []
-        body.include_gl_detail = False
-        body.include_portal_data = False
-    elif plan in ("pro", "plus"):
-        body.include_portal_data = False
-    # admin: no restrictions
+    # Feature gates by plan. The frontend disables these controls for lower
+    # tiers; this is the server-side safety net for direct API callers.
+    _UPGRADE_URL = "/acorn#pricing"
+
+    def _require_plan(feature: str, allowed: tuple[str, ...], min_plan: str):
+        if plan not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"{feature} requires a {min_plan} plan. Upgrade at {_UPGRADE_URL}",
+            )
+
+    if body.dimension and body.dimension != "none":
+        _require_plan("Class/Location reporting", ("pro", "plus", "admin"), "Pro")
+    if body.selected_maps:
+        _require_plan("Account mapping",           ("pro", "plus", "admin"), "Pro")
+    if body.include_gl_detail:
+        _require_plan("Full GL detail",            ("pro", "plus", "admin"), "Pro")
+    if body.include_portal_data:
+        _require_plan("Portal data tabs",          ("admin",),               "Admin")
 
     # Per-user limit: only one running/pending job at a time.
     existing = sb.table("jobs").select("id, status").eq(
@@ -1789,7 +1807,12 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
 
 @router.get("/download/{job_id}")
 def download_report(job_id: str, user=Depends(get_current_user)):
-    """Download a completed report file through the backend."""
+    """Download a completed report file through the backend.
+
+    Reads the exact storage path persisted on the job row (in `file_url`)
+    rather than listing the bucket, so orphan files from earlier attempts
+    are never served.
+    """
     from fastapi.responses import Response
     job = get_job(job_id)
     if not job or job["user_id"] != str(user.id):
@@ -1797,17 +1820,20 @@ def download_report(job_id: str, user=Depends(get_current_user)):
     if job.get("status") != "complete":
         raise HTTPException(status_code=400, detail="Report not ready")
 
+    storage_path = (job.get("file_url") or "").strip()
+    if not storage_path:
+        raise HTTPException(status_code=404, detail="Report file not found in storage")
+
+    # Defense in depth: the stored path must start with the caller's user id.
+    # Rejects any legacy row that was written with an unexpected path shape.
+    if not storage_path.startswith(f"{str(user.id)}/"):
+        raise HTTPException(status_code=404, detail="Report file not found in storage")
+
+    file_name = storage_path.rsplit("/", 1)[-1] or "report.xlsx"
+
     supabase = get_supabase()
-    user_id = str(user.id)
     try:
-        files = supabase.storage.from_("reports").list(f"{user_id}/{job_id}")
-        if not files:
-            raise HTTPException(status_code=404, detail="Report file not found in storage")
-        file_name = files[0]["name"]
-        storage_path = f"{user_id}/{job_id}/{file_name}"
         data = supabase.storage.from_("reports").download(storage_path)
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Download error: {e}")
         raise HTTPException(status_code=500, detail="Could not retrieve report file")

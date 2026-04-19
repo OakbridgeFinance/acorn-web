@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -32,7 +32,7 @@ def update_job(job_id: str, **kwargs):
     supabase = get_supabase()
     supabase.table("jobs").update({
         **kwargs,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", job_id).execute()
 
 

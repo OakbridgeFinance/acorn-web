@@ -41,27 +41,41 @@ FRONTEND = Path(__file__).parent.parent / "frontend"
 
 
 @app.on_event("startup")
-def _recover_orphan_jobs():
-    """Flip any pending/running jobs to failed at startup.
+def _startup_sweeps():
+    """Boot-time cleanups.
 
-    Reports run in in-process threads. A process restart (deploy, crash) drops
-    the worker but leaves the DB row stuck at status='running', so the UI
-    polls forever. Sweep on boot.
+    1. Flip pending/running jobs to failed. Reports run in in-process threads,
+       so a process restart drops the worker but leaves the DB row stuck at
+       status='running', making the UI poll forever.
+    2. Delete expired QBO OAuth state rows (older than 1 hour). States are
+       consumed on callback but abandoned flows accumulate otherwise.
     """
+    from datetime import datetime, timezone, timedelta
+    from supabase import create_client
+
     try:
-        from datetime import datetime
-        from supabase import create_client
         sb = create_client(
             os.getenv("SUPABASE_URL"),
             os.getenv("SUPABASE_SERVICE_KEY"),
         )
+    except Exception as e:
+        logger.warning(f"Startup sweep skipped — Supabase client init failed: {e}")
+        return
+
+    try:
         sb.table("jobs").update({
             "status":     "failed",
             "error":      "Server restart",
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }).in_("status", ["pending", "running"]).execute()
     except Exception as e:
         logger.warning(f"Orphan-job recovery sweep failed: {e}")
+
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        sb.table("qbo_oauth_states").delete().lt("created_at", cutoff).execute()
+    except Exception as e:
+        logger.warning(f"OAuth state cleanup failed: {e}")
 
 @app.get("/health")
 def health():

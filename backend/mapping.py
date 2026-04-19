@@ -1,6 +1,6 @@
 import os
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Any
@@ -121,6 +121,6 @@ def save_mapping(realm_id: str, body: MappingBody, user=Depends(get_current_user
         "user_id":      str(user.id),
         "realm_id":     realm_id,
         "account_maps": body.account_maps,
-        "updated_at":   datetime.utcnow().isoformat(),
+        "updated_at":   datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,realm_id").execute()
     return {"saved": True}

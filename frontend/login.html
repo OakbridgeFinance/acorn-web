@@ -39,6 +39,22 @@
     <button class="login-btn" id="authBtn" onclick="doAuth()">Sign In</button>
     <div class="login-error" id="authError"></div>
 
+    <div id="forgotRow" style="text-align:center;margin-top:10px;font-size:13px;">
+      <a id="forgotLink" onclick="showForgotForm()" style="color:#337E8D;cursor:pointer;text-decoration:none;">Forgot password?</a>
+    </div>
+
+    <div id="forgotForm" style="display:none;margin-top:12px;">
+      <div class="login-field">
+        <label for="forgotEmail">Email</label>
+        <input type="email" id="forgotEmail" placeholder="you@company.com" />
+      </div>
+      <button class="login-btn" id="forgotBtn" onclick="doForgot()">Send Reset Link</button>
+      <div id="forgotMsg" style="margin-top:10px;font-size:13px;"></div>
+      <div style="text-align:center;margin-top:10px;font-size:13px;">
+        <a onclick="hideForgotForm()" style="color:#337E8D;cursor:pointer;text-decoration:none;">← Back to sign in</a>
+      </div>
+    </div>
+
     <div class="login-toggle">
       <span id="toggleText">Don't have an account?</span>
       <a id="toggleLink" onclick="toggleMode()">Create one →</a>
@@ -141,14 +157,91 @@ async function doAuth() {
   }
 }
 
-// If already logged in, go straight to app
-if (localStorage.getItem('acorn_access_token')) {
-  window.location.href = 'app.html';
+function showForgotForm() {
+  document.getElementById('forgotForm').style.display = 'block';
+  document.getElementById('forgotRow').style.display = 'none';
+  document.getElementById('authError').style.display = 'none';
+  const email = document.getElementById('email').value.trim();
+  if (email) document.getElementById('forgotEmail').value = email;
 }
 
-// Enter key submits
+function hideForgotForm() {
+  document.getElementById('forgotForm').style.display = 'none';
+  document.getElementById('forgotRow').style.display = '';
+  document.getElementById('forgotMsg').textContent = '';
+}
+
+async function doForgot() {
+  const email = document.getElementById('forgotEmail').value.trim();
+  const msg   = document.getElementById('forgotMsg');
+  const btn   = document.getElementById('forgotBtn');
+  if (!email) {
+    msg.style.color = '#CC0000';
+    msg.textContent = 'Email is required.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  msg.textContent = '';
+  try {
+    const res = await fetch(API + '/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    msg.style.color = '#059669';
+    msg.textContent = data.message
+      || 'If an account exists with that email, a reset link has been sent.';
+  } catch (e) {
+    msg.style.color = '#CC0000';
+    msg.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send Reset Link';
+  }
+}
+
+// If already logged in, verify the token before bouncing to app.html.
+(async function _maybeRedirect() {
+  const access  = localStorage.getItem('acorn_access_token');
+  const refresh = localStorage.getItem('acorn_refresh_token');
+  if (!access) return;
+  try {
+    const res = await fetch(API + '/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh || '' }),
+    });
+    if (!res.ok) {
+      // Stale tokens — wipe them and stay on the login page.
+      localStorage.removeItem('acorn_access_token');
+      localStorage.removeItem('acorn_refresh_token');
+      return;
+    }
+    const data = await res.json();
+    if (data.access_token)  localStorage.setItem('acorn_access_token',  data.access_token);
+    if (data.refresh_token) localStorage.setItem('acorn_refresh_token', data.refresh_token);
+    if (data.plan)          localStorage.setItem('acorn_plan',          data.plan);
+    if (typeof data.trial !== 'undefined') {
+      localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
+    }
+    if (typeof data.trial_days_remaining !== 'undefined') {
+      localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
+    }
+    window.location.href = 'app.html';
+  } catch (e) {
+    // Network failure — leave the user on the login page rather than
+    // bouncing to an app that won't be able to authenticate anyway.
+  }
+})();
+
+// Enter key submits the currently-visible form.
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter') doAuth();
+  if (e.key !== 'Enter') return;
+  const forgotVisible = document.getElementById('forgotForm').style.display !== 'none';
+  forgotVisible ? doForgot() : doAuth();
 });
 </script>
 </body>
