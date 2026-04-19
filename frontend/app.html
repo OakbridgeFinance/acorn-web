@@ -618,7 +618,7 @@ function renderClientList() {
 async function removeConnection(realmId) {
   if (!confirm('Remove this QuickBooks connection? You can reconnect at any time.')) return;
   try {
-    const res = await fetch(API + '/api/qbo/companies/' + realmId, {
+    const res = await fetch(API + '/api/qbo/companies/' + encodeURIComponent(realmId), {
       method: 'DELETE',
       headers: authHeaders(),
     });
@@ -661,7 +661,7 @@ function resetExtractionUI() {
   if (stopBtn) stopBtn.style.display = 'none';
 
   // Clear job polling
-  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
 
   // Clear job IDs
   _currentJobId = null;
@@ -740,7 +740,7 @@ async function reconnectQBO() {
 
   try {
     // Try silent token refresh first
-    const res = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
+    const res = await fetch(API + '/api/qbo/refresh-token/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
     });
@@ -858,7 +858,7 @@ async function loadMappingSelection(realmId) {
   const body = $('mappingSelectionBody');
   if (!body || !realmId) return;
   try {
-    const res = await fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() });
+    const res = await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), { headers: authHeaders() });
     const data = await res.json();
     const maps = data.account_maps || [];
     if (!maps.length) {
@@ -948,23 +948,29 @@ async function generate() {
 }
 
 // ── Job polling ─────────────────────────────────────────────────────────────
-function pollJob(jobId) {
-  if (state.pollTimer) clearInterval(state.pollTimer);
+const _POLL_BASE_MS   = 3000;
+const _POLL_MAX_MS    = 30000;
+const _POLL_MAX_ERRORS = 10;
 
-  state.pollTimer = setInterval(async () => {
+function pollJob(jobId) {
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+  let errorCount = 0;
+
+  const tick = async () => {
+    let ok = false;
     try {
-      const res = await fetch(API + '/api/reports/job/' + jobId, {
+      const res = await fetch(API + '/api/reports/job/' + encodeURIComponent(jobId), {
         headers: authHeaders(),
       });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const job = await res.json();
+      ok = true;
+      errorCount = 0;
 
       if (job.status === 'running' || job.status === 'pending') {
         setProgress(job.status === 'running' ? 50 : 10);
-        if (job.progress) {
-          appendLog(job.progress);
-        }
+        if (job.progress) appendLog(job.progress);
       } else if (job.status === 'complete') {
-        clearInterval(state.pollTimer);
         state.pollTimer = null;
         setProgress(100);
         setRunning(false);
@@ -1008,16 +1014,31 @@ function pollJob(jobId) {
             $('saveAsBtn').onclick = function() { saveReportAs(_currentJobId, suggestedName); };
           }
         }
+        return;  // terminal state — stop polling
       } else if (job.status === 'failed') {
-        clearInterval(state.pollTimer);
         state.pollTimer = null;
         setRunning(false);
         showStatus('Error: ' + (job.error || 'Report generation failed'), 'error');
+        return;  // terminal state
       }
     } catch (e) {
       console.error('Poll error:', e);
+      errorCount += 1;
+      if (errorCount >= _POLL_MAX_ERRORS) {
+        state.pollTimer = null;
+        setRunning(false);
+        showStatus('Lost connection to server. Please refresh the page.', 'error');
+        return;
+      }
     }
-  }, 3000);
+
+    const delay = ok
+      ? _POLL_BASE_MS
+      : Math.min(_POLL_MAX_MS, _POLL_BASE_MS * Math.pow(2, errorCount - 1));
+    state.pollTimer = setTimeout(tick, delay);
+  };
+
+  state.pollTimer = setTimeout(tick, _POLL_BASE_MS);
 }
 
 // ── Save As ─────────────────────────────────────────────────────────────────
@@ -1031,7 +1052,7 @@ async function saveReportAs(jobId, suggestedName) {
     const btn = $('saveAsBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
-    const downloadUrl = API + '/api/reports/download/' + jobId;
+    const downloadUrl = API + '/api/reports/download/' + encodeURIComponent(jobId);
     console.log('[saveReportAs] fetching:', downloadUrl);
     const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveReportAs] response status:', response.status, response.statusText);
@@ -1083,7 +1104,7 @@ async function saveSameFile(jobId, filename) {
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Fetching file...'; }
 
-    const downloadUrl = API + '/api/reports/download/' + jobId;
+    const downloadUrl = API + '/api/reports/download/' + encodeURIComponent(jobId);
     console.log('[saveSameFile] fetching:', downloadUrl);
     const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveSameFile] response status:', response.status, response.statusText);
@@ -1133,12 +1154,12 @@ function showSaveError(msg) {
 async function stopReport() {
   if (!_currentJobId) return;
   try {
-    await fetch(API + '/api/reports/job/' + _currentJobId + '/cancel', {
+    await fetch(API + '/api/reports/job/' + encodeURIComponent(_currentJobId) + '/cancel', {
       method: 'POST',
       headers: authHeaders(),
     });
   } catch (e) {}
-  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
   setRunning(false);
   showStatus('Stopped by user.', 'warning');
 }
@@ -1237,7 +1258,7 @@ async function mapsLoadList() {
   if (realmId && _mapsQboRefreshedRealm !== realmId) {
     try {
       console.log('[mapsLoadList] refreshing QBO token...');
-      const rr = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
+      const rr = await fetch(API + '/api/qbo/refresh-token/' + encodeURIComponent(realmId), {
         method: 'POST',
         headers: authHeaders(),
       });
@@ -1257,8 +1278,8 @@ async function mapsLoadList() {
   try {
     console.log('[mapsLoadList] fetching mappings + COA...');
     const [mapsResp, acctResp] = await Promise.all([
-      fetch(API + '/api/mapping/' + realmId, { headers: authHeaders() }).then(r => r.json()),
-      fetch(API + '/api/mapping/coa/' + realmId, { headers: authHeaders() }).then(r => r.json()),
+      fetch(API + '/api/mapping/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json()),
+      fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json()),
     ]);
     mapsState.maps = Array.isArray(mapsResp.account_maps) ? mapsResp.account_maps : [];
     mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
@@ -1343,14 +1364,14 @@ async function mapsOpenEditor() {
       await refreshTokenIfNeeded();
       _mapsQboRefreshedRealm = null;
       try {
-        const rr = await fetch(API + '/api/qbo/refresh-token/' + realmId, {
+        const rr = await fetch(API + '/api/qbo/refresh-token/' + encodeURIComponent(realmId), {
           method: 'POST', headers: authHeaders(),
         });
         console.log('[mapsOpenEditor] QBO refresh status:', rr.status);
         if (rr.ok) _mapsQboRefreshedRealm = realmId;
       } catch (e) { console.warn('[mapsOpenEditor] QBO refresh error:', e); }
       try {
-        const acctResp = await fetch(API + '/api/mapping/coa/' + realmId, { headers: authHeaders() }).then(r => r.json());
+        const acctResp = await fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json());
         mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
         console.log('[mapsOpenEditor] loaded', mapsState.allAccounts.length, 'accounts on retry');
       } catch (e) { console.error('[mapsOpenEditor] COA fetch error:', e); }
@@ -1865,7 +1886,7 @@ async function _doSaveMap(mapObj, asNew) {
   }
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + realmId, {
+    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ account_maps: allMaps }),
@@ -1891,7 +1912,7 @@ async function mapsDuplicate(idx) {
   mapsState.maps.push(copy);
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + realmId, {
+    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ account_maps: mapsState.maps }),
@@ -1910,7 +1931,7 @@ async function mapsDelete(idx) {
   allMaps.splice(idx, 1);
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + realmId, {
+    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ account_maps: allMaps }),

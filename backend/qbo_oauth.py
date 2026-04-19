@@ -1,9 +1,3 @@
-import sys
-from pathlib import Path
-
-# Add core directory to path so gl_extractor and its dependencies can import token_manager
-sys.path.insert(0, str(Path(__file__).parent / "core"))
-
 import os
 import httpx
 import base64
@@ -179,7 +173,7 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
     access_token  = tokens.get("access_token")
     refresh_token = tokens.get("refresh_token")
     expires_in    = tokens.get("expires_in", 3600)
-    expires_at    = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+    expires_at    = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
 
     # Fetch company name from QBO
     company_name = realmId  # fallback
@@ -210,7 +204,7 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
         "access_token":  access_token,
         "refresh_token": refresh_token,
         "expires_at":    expires_at,
-        "updated_at":    datetime.utcnow().isoformat(),
+        "updated_at":    datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,realm_id").execute()
 
     # Consume the state row (one-time use) so it can't be replayed.
@@ -277,13 +271,13 @@ async def refresh_qbo_token(realm_id: str, user=Depends(get_current_user)):
     new_tokens = resp.json()
     new_access  = new_tokens["access_token"]
     new_refresh = new_tokens.get("refresh_token", refresh_token)
-    new_expiry  = (datetime.utcnow() + timedelta(seconds=new_tokens.get("expires_in", 3600))).isoformat()
+    new_expiry  = (datetime.now(timezone.utc) + timedelta(seconds=new_tokens.get("expires_in", 3600))).isoformat()
 
     supabase.table("qbo_tokens").update({
         "access_token":  new_access,
         "refresh_token": new_refresh,
         "expires_at":    new_expiry,
-        "updated_at":    datetime.utcnow().isoformat(),
+        "updated_at":    datetime.now(timezone.utc).isoformat(),
     }).eq("user_id", str(user.id)).eq("realm_id", realm_id).execute()
 
     return {"refreshed": True, "expires_at": new_expiry}

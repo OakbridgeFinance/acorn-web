@@ -46,6 +46,10 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class ResetPasswordRequest(BaseModel):
+    email: str
+
+
 # ── Trial / plan helpers ─────────────────────────────────────────────────────
 
 def _effective_plan(app_meta: dict) -> tuple[str, bool, int]:
@@ -79,6 +83,10 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 _LOGIN_LIMIT  = 5
 _LOGIN_WINDOW = 300  # 5 minutes
 
+_reset_attempts: dict[str, list[float]] = defaultdict(list)
+_RESET_LIMIT  = 3
+_RESET_WINDOW = 3600  # 1 hour
+
 
 def _check_signup_rate(ip: str):
     now = time.time()
@@ -97,6 +105,17 @@ def _check_login_rate(ip: str):
             detail="Too many login attempts. Please try again in a few minutes.",
         )
     _login_attempts[ip].append(now)
+
+
+def _check_reset_rate(ip: str):
+    now = time.time()
+    _reset_attempts[ip] = [t for t in _reset_attempts[ip] if now - t < _RESET_WINDOW]
+    if len(_reset_attempts[ip]) >= _RESET_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many reset attempts. Try again later.",
+        )
+    _reset_attempts[ip].append(now)
 
 
 # ── Auth dependency ──────────────────────────────────────────────────────────
@@ -139,7 +158,7 @@ def signup(body: AuthRequest, request: Request):
 
     supabase_admin = get_supabase_admin()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = supabase_admin.auth.admin.create_user({
             "email": body.email,
             "password": body.password,
@@ -202,3 +221,35 @@ def refresh_token(body: RefreshRequest):
         }
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordRequest, request: Request):
+    """Send a password-reset email via Supabase's built-in recovery flow.
+
+    Always returns a generic success message regardless of whether the email
+    exists, so attackers can't use this endpoint to enumerate accounts.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    _check_reset_rate(client_ip)
+
+    # Basic format validation — don't bother Supabase with garbage input.
+    if not body.email or not _EMAIL_RE.match(body.email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+
+    try:
+        supabase_admin = get_supabase_admin()
+        # generate_link creates a recovery link; Supabase's Auth service emails
+        # it to the user automatically when the "Enable email confirmations"
+        # template is configured.
+        supabase_admin.auth.admin.generate_link({
+            "type":  "recovery",
+            "email": body.email,
+        })
+    except Exception:
+        # Swallow — revealing whether this succeeded leaks account existence.
+        pass
+
+    return {
+        "message": "If an account exists with that email, a reset link has been sent.",
+    }
