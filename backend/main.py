@@ -101,10 +101,6 @@ def styles():
 def logo_image():
     return FileResponse(FRONTEND / "Logo-F23-transparent.png", media_type="image/png")
 
-@app.get("/favicon.svg")
-def favicon_svg():
-    return FileResponse(FRONTEND / "favicon.svg", media_type="image/svg+xml")
-
 @app.get("/favicon.png")
 def favicon_png():
     return FileResponse(FRONTEND / "favicon.png", media_type="image/png")

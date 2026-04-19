@@ -88,34 +88,48 @@ _RESET_LIMIT  = 3
 _RESET_WINDOW = 3600  # 1 hour
 
 
-def _check_signup_rate(ip: str):
+def _sweep_rate_store(store: dict[str, list[float]], window: float, now: float) -> None:
+    """Drop IPs whose entire window has elapsed so the dict can't grow unbounded."""
+    stale = [ip for ip, timestamps in store.items()
+             if not timestamps or (now - max(timestamps)) > window]
+    for ip in stale:
+        store.pop(ip, None)
+
+
+def _check_rate(
+    store: dict[str, list[float]],
+    ip: str,
+    limit: int,
+    window: float,
+    detail: str,
+) -> None:
     now = time.time()
-    _signup_attempts[ip] = [t for t in _signup_attempts[ip] if now - t < _SIGNUP_WINDOW]
-    if len(_signup_attempts[ip]) >= _SIGNUP_LIMIT:
-        raise HTTPException(status_code=429, detail="Too many signup attempts. Try again later.")
-    _signup_attempts[ip].append(now)
+    _sweep_rate_store(store, window, now)
+    store[ip] = [t for t in store[ip] if now - t < window]
+    if len(store[ip]) >= limit:
+        raise HTTPException(status_code=429, detail=detail)
+    store[ip].append(now)
+
+
+def _check_signup_rate(ip: str):
+    _check_rate(
+        _signup_attempts, ip, _SIGNUP_LIMIT, _SIGNUP_WINDOW,
+        "Too many signup attempts. Try again later.",
+    )
 
 
 def _check_login_rate(ip: str):
-    now = time.time()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_WINDOW]
-    if len(_login_attempts[ip]) >= _LOGIN_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many login attempts. Please try again in a few minutes.",
-        )
-    _login_attempts[ip].append(now)
+    _check_rate(
+        _login_attempts, ip, _LOGIN_LIMIT, _LOGIN_WINDOW,
+        "Too many login attempts. Please try again in a few minutes.",
+    )
 
 
 def _check_reset_rate(ip: str):
-    now = time.time()
-    _reset_attempts[ip] = [t for t in _reset_attempts[ip] if now - t < _RESET_WINDOW]
-    if len(_reset_attempts[ip]) >= _RESET_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many reset attempts. Try again later.",
-        )
-    _reset_attempts[ip].append(now)
+    _check_rate(
+        _reset_attempts, ip, _RESET_LIMIT, _RESET_WINDOW,
+        "Too many reset attempts. Try again later.",
+    )
 
 
 # ── Auth dependency ──────────────────────────────────────────────────────────
@@ -142,6 +156,46 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
+_PASSWORD_POLICY_MSG = (
+    "Password must be at least 8 characters with at least one uppercase "
+    "letter, one lowercase letter, and one number."
+)
+
+
+def _password_ok(pw: str) -> bool:
+    return (
+        isinstance(pw, str)
+        and len(pw) >= 8
+        and any(c.isupper() for c in pw)
+        and any(c.islower() for c in pw)
+        and any(c.isdigit() for c in pw)
+    )
+
+
+# Duplicate-user detection. supabase-py wraps Auth errors with an HTTP status
+# code (422) and/or an `error_code` like "email_exists" / "user_already_exists".
+# We try each signal in order, with message substrings as the last resort for
+# older/alternate Supabase versions.
+_DUPLICATE_ERROR_CODES = {"email_exists", "user_already_exists"}
+_DUPLICATE_SUBSTRINGS = (
+    "already been registered",
+    "already registered",
+    "already exists",
+    "user already exists",
+    "duplicate key",
+)
+
+
+def _looks_like_duplicate_user(err: Exception) -> bool:
+    code = getattr(err, "code", None) or getattr(err, "error_code", None)
+    if isinstance(code, str) and code.lower() in _DUPLICATE_ERROR_CODES:
+        return True
+    status = getattr(err, "status", None) or getattr(err, "status_code", None)
+    msg = str(err).lower()
+    if status in (409, 422) and any(s in msg for s in _DUPLICATE_SUBSTRINGS):
+        return True
+    return any(s in msg for s in _DUPLICATE_SUBSTRINGS)
+
 
 @router.post("/signup")
 def signup(body: AuthRequest, request: Request):
@@ -149,8 +203,8 @@ def signup(body: AuthRequest, request: Request):
     # Validation
     if not body.email or not _EMAIL_RE.match(body.email):
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
-    if not body.password or len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if not _password_ok(body.password or ""):
+        raise HTTPException(status_code=400, detail=_PASSWORD_POLICY_MSG)
 
     # Rate limit
     client_ip = request.client.host if request.client else "unknown"
@@ -171,10 +225,12 @@ def signup(body: AuthRequest, request: Request):
         })
         return {"message": "Account created! Check your email to verify, then sign in."}
     except Exception as e:
-        detail = str(e)
-        if "already been registered" in detail.lower() or "already exists" in detail.lower():
-            raise HTTPException(status_code=400, detail="An account with this email already exists.")
-        raise HTTPException(status_code=400, detail=detail)
+        if _looks_like_duplicate_user(e):
+            raise HTTPException(
+                status_code=400,
+                detail="An account with this email already exists.",
+            )
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/login")
