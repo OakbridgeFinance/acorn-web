@@ -20,7 +20,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from supabase import create_client
 
 from backend.auth import get_current_user
@@ -1761,6 +1763,20 @@ def cancel_job(job_id: str, user=Depends(get_current_user)):
     return {"cancelled": True}
 
 
+def _cleanup_report(storage_path: str, job_id: str) -> None:
+    """Best-effort post-download cleanup: delete the file from Supabase
+    storage and clear file_url on the job row. Reports are single-use —
+    if the user needs the file again they generate a new one."""
+    try:
+        get_supabase().storage.from_("reports").remove([storage_path])
+    except Exception as e:
+        logger.warning(f"Post-download storage delete failed: {e}")
+    try:
+        update_job(job_id, file_url=None)
+    except Exception as e:
+        logger.warning(f"Post-download job-row clear failed: {e}")
+
+
 @router.get("/download/{job_id}")
 def download_report(job_id: str, user=Depends(get_current_user)):
     """Download a completed report file through the backend.
@@ -1768,8 +1784,12 @@ def download_report(job_id: str, user=Depends(get_current_user)):
     Reads the exact storage path persisted on the job row (in `file_url`)
     rather than listing the bucket, so orphan files from earlier attempts
     are never served.
+
+    Reports are single-use: once the bytes have been streamed to the client
+    a BackgroundTask deletes the file from storage and clears file_url on
+    the job row. A second call to this endpoint for the same job_id will
+    return 404.
     """
-    from fastapi.responses import Response
     job = get_job(job_id)
     if not job or job["user_id"] != str(user.id):
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1798,6 +1818,7 @@ def download_report(job_id: str, user=Depends(get_current_user)):
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        background=BackgroundTask(_cleanup_report, storage_path, job_id),
     )
 
 
