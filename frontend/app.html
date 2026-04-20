@@ -1142,6 +1142,8 @@ function rememberLastFilename(name) {
   localStorage.setItem('acorn_last_filename_' + state.realmId, name);
 }
 
+const _REPORT_GONE_MSG = 'This report has already been downloaded. For data security, all reports are deleted from our servers after download. Please generate the report again to get a new copy.';
+
 async function saveReportAs(jobId, suggestedName) {
   try {
     const btn = $('saveAsBtn');
@@ -1151,6 +1153,11 @@ async function saveReportAs(jobId, suggestedName) {
     console.log('[saveReportAs] fetching:', downloadUrl);
     const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveReportAs] response status:', response.status, response.statusText);
+    if (response.status === 404) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
+      showToast(_REPORT_GONE_MSG, 'warning');
+      return;
+    }
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
     console.log('[saveReportAs] blob size:', blob.size, 'type:', blob.type);
@@ -1203,6 +1210,11 @@ async function saveSameFile(jobId, filename) {
     console.log('[saveSameFile] fetching:', downloadUrl);
     const response = await fetch(downloadUrl, { headers: authHeaders() });
     console.log('[saveSameFile] response status:', response.status, response.statusText);
+    if (response.status === 404) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
+      showToast(_REPORT_GONE_MSG, 'warning');
+      return;
+    }
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
     console.log('[saveSameFile] blob size:', blob.size);
