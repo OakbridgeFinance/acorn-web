@@ -43,6 +43,13 @@
       <input type="password" id="confirmPassword" placeholder="Confirm password" />
     </div>
 
+    <div id="termsField" style="display:none; align-items:flex-start; gap:8px; margin-top:12px;">
+      <input type="checkbox" id="acceptTerms" style="width:16px; height:16px; margin-top:2px; cursor:pointer;">
+      <label for="acceptTerms" style="font-size:13px; color:#5A6B6D; cursor:pointer; line-height:1.4;">
+        I agree to the <a href="https://oakbridgefinance.com/terms" target="_blank" style="color:#337E8D;">Terms of Service</a> and <a href="https://oakbridgefinance.com/privacy" target="_blank" style="color:#337E8D;">Privacy Policy</a>
+      </label>
+    </div>
+
     <button class="login-btn" id="authBtn" onclick="doAuth()">Sign In</button>
     <div class="login-error" id="authError"></div>
 
@@ -81,6 +88,8 @@ function toggleMode() {
   document.getElementById('toggleText').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
   document.getElementById('toggleLink').textContent = isSignup ? 'Sign in →' : 'Create one →';
   document.getElementById('confirmField').style.display = isSignup ? '' : 'none';
+  document.getElementById('termsField').style.display   = isSignup ? 'flex' : 'none';
+  if (!isSignup) document.getElementById('acceptTerms').checked = false;
   document.getElementById('authError').style.display = 'none';
   document.getElementById('signupSuccess').style.display = 'none';
 }
@@ -112,6 +121,12 @@ async function doAuth() {
       errEl.style.display = 'block';
       return;
     }
+    if (!document.getElementById('acceptTerms').checked) {
+      errEl.textContent = 'You must accept the Terms of Service and Privacy Policy to create an account';
+      errEl.style.color = '#CC0000';
+      errEl.style.display = 'block';
+      return;
+    }
   }
 
   btn.disabled = true;
@@ -136,6 +151,8 @@ async function doAuth() {
       isSignup = false;
       document.getElementById('authTitle').textContent = 'Sign in to Acorn';
       document.getElementById('confirmField').style.display = 'none';
+      document.getElementById('termsField').style.display = 'none';
+      document.getElementById('acceptTerms').checked = false;
       document.getElementById('toggleText').textContent = "Don't have an account?";
       document.getElementById('toggleLink').textContent = 'Create one →';
       document.getElementById('signupSuccess').style.display = 'block';
