@@ -31,11 +31,13 @@ from backend.auth import router as auth_router
 from backend.qbo_oauth import router as qbo_router
 from backend.reports import router as reports_router
 from backend.mapping import router as mapping_router
+from backend.stripe_webhook import router as stripe_router
 
 app.include_router(auth_router)
 app.include_router(qbo_router)
 app.include_router(reports_router)
 app.include_router(mapping_router)
+app.include_router(stripe_router)
 
 FRONTEND = Path(__file__).parent.parent / "frontend"
 
