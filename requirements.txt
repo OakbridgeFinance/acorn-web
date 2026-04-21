@@ -3,6 +3,7 @@ uvicorn
 python-dotenv
 httpx
 supabase
+stripe
 aiofiles
 pandas
 openpyxl
