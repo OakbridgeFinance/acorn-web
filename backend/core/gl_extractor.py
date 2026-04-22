@@ -18,6 +18,7 @@ from typing import Callable
 
 import openpyxl
 import pandas as pd
+from openpyxl.cell.cell import Cell
 
 from qbo_client import fetch_report, fetch_accounts
 from report_parser import parse_general_ledger, parse_financial_statement
@@ -25,20 +26,42 @@ from report_parser import parse_general_ledger, parse_financial_statement
 
 # XML 1.0 disallows these codepoints outright; openpyxl refuses to save a
 # workbook that contains any of them in a string cell. QBO memos occasionally
-# carry stray control chars (pasted from Word, scanner OCR, etc.) and one
-# such cell will fail the whole report's save. Strip them defensively.
+# carry stray control chars (pasted from Word, scanner OCR, etc.).
 _ILLEGAL_XML_RE = re.compile(
     r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f'
     r'\ud800-\udfff\ufdd0-\ufdef\ufffe\uffff]'
 )
 
 
-def _sanitize_workbook(wb) -> None:
-    """Strip XML-illegal control characters from every string cell.
+# ── Monkey-patch openpyxl ────────────────────────────────────────────────────
+# Cell.check_string is called on every string assignment to a cell and raises
+# IllegalCharacterError if the value contains any XML-1.0-illegal codepoint.
+# That happens at assignment time, long before wb.save(), so a sanitise-before-
+# save pass can't catch it — one bad QBO memo would crash the whole report.
+#
+# Replace the method with a version that silently strips those codepoints.
+# The assignment to the class attribute installs the patch process-wide for
+# every Cell instance, including ones openpyxl creates internally when loading
+# an existing workbook. Tabs/newlines/carriage returns are preserved because
+# they're not in _ILLEGAL_XML_RE.
+def _safe_check_string(self, value):
+    if value is None:
+        return value
+    if not isinstance(value, str):
+        value = str(value)
+    value = value[:32767]  # Excel cell value hard limit
+    return _ILLEGAL_XML_RE.sub('', value)
 
-    Call immediately before wb.save(...) so a single bad QBO memo can't
-    blow up the entire report.
-    """
+
+Cell.check_string = _safe_check_string
+
+
+def _sanitize_workbook(wb) -> None:
+    """Safety-net second pass: strip XML-illegal control characters from every
+    string cell just before saving. Redundant with the check_string monkey-
+    patch above for normal cell writes, but catches edge cases where a value
+    is set through a path that bypasses check_string (direct _value writes,
+    shared-string table loads from a tainted source workbook, etc.)."""
     for ws in wb.worksheets:
         for row in ws.iter_rows():
             for cell in row:

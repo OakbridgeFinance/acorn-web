@@ -29,6 +29,10 @@ from backend.auth import get_current_user
 from backend.jobs import create_job, update_job, get_job, get_user_jobs
 from backend.excel_formatter import apply_global_formatting
 from backend.portal_prep import build_portal_flat_tabs
+# Import gl_extractor at module load (not inside run_report_job) so its
+# Cell.check_string monkey-patch is installed before any worker thread
+# writes a cell value anywhere in the process.
+from gl_extractor import generate_lite
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -151,7 +155,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
     try:
         _check_cancel(job_id)
         update_job(job_id, status="running")
-        from gl_extractor import generate_lite
         supabase = get_supabase()
         token_result = supabase.table("qbo_tokens").select(
             "access_token, refresh_token, company_name"
