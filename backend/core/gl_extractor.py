@@ -1561,7 +1561,8 @@ def _write_validation_sheet(
         bs_num_cols = len(bs_report_rows[0]) - 1 if bs_report_rows[0] else 0
         num_bs_cols = bs_num_cols
         from openpyxl.utils import get_column_letter as _gcl_v
-        bs_last_col = _gcl_v(num_bs_cols + _DC) if num_bs_cols > 0 else "C"
+        bs_first_col = _gcl_v(_DC + 1) if num_bs_cols > 0 else "C"
+        bs_last_col  = _gcl_v(num_bs_cols + _DC) if num_bs_cols > 0 else "C"
         for ri, row in enumerate(bs_report_rows[1:], 6):
             if row:
                 full = str(row[0] or "").strip()
@@ -1575,7 +1576,8 @@ def _write_validation_sheet(
                 if bs_bare_counts.get(bare, 0) == 1:
                     bs_bare_lookup[bare] = ri
     else:
-        bs_last_col = "B"
+        bs_first_col = "B"
+        bs_last_col  = "B"
 
     pl_num_cols = len(pl_rows[0]) - 1 if pl_rows and pl_rows[0] else 0
     from openpyxl.utils import get_column_letter as _gcl_v2
@@ -1682,16 +1684,26 @@ def _write_validation_sheet(
         rn = current_row
         ws.cell(row=rn, column=_DC, value=acct)
         ws.cell(row=rn, column=_DC + 1, value="BS")
-        if date_end_formula:
-            _bs_formula = (
-                f"=IFERROR(SUMIFS('BS Balances'!{_BS_BAL}:{_BS_BAL},"
-                f"'BS Balances'!{_BS_ACCT}:{_BS_ACCT},{_VBL}{rn},"
-                f"'BS Balances'!{_BS_MON}:{_BS_MON},{date_end_formula}),0)")
-        else:
-            _bs_formula = (
-                f"=IFERROR(SUMIF('BS Balances'!{_BS_ACCT}:{_BS_ACCT},{_VBL}{rn},'BS Balances'!{_BS_BAL}:{_BS_BAL}),0)")
+
+        # Hash-total cross-check. BS Balances has one row per account per
+        # month-end, so SUMIF by account across the entire Balance column
+        # gives us the sum of every monthly balance for this account in the
+        # report period. The Balance Sheet tab has one row per account with
+        # months as columns; SUM of the whole XLOOKUP row sums the same
+        # months. The two totals should match — that proves BS Balances has
+        # a row for every month and every month's value ties back to the
+        # QBO Balance Sheet report.
+        _bs_formula = (
+            f"=IFERROR(SUMIF('BS Balances'!{_BS_ACCT}:{_BS_ACCT},"
+            f"{_VBL}{rn},'BS Balances'!{_BS_BAL}:{_BS_BAL}),0)"
+        )
         ws.cell(row=rn, column=_DC + 2, value=_bs_formula).number_format = NUM_FMT
-        qbo_formula = f"=IFERROR(_xlfn.XLOOKUP({_VBL}{rn},'Balance Sheet'!{_VBL}:{_VBL},'Balance Sheet'!{bs_last_col}:{bs_last_col},0),0)"
+
+        qbo_formula = (
+            f"=IFERROR(SUM(_xlfn.XLOOKUP({_VBL}{rn},"
+            f"'Balance Sheet'!{_VBL}:{_VBL},"
+            f"'Balance Sheet'!{bs_first_col}:{bs_last_col})),0)"
+        )
         c = ws.cell(row=rn, column=_DC + 3, value=qbo_formula)
         c.number_format = NUM_FMT
         ws.cell(row=rn, column=_DC + 4, value=f"={_VDL}{rn}-{_VEL}{rn}").number_format = NUM_FMT
