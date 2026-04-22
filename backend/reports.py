@@ -50,6 +50,29 @@ class CancelledJob(Exception):
     """Raised inside the worker when the job row has been marked failed (cancel)."""
 
 
+# XML 1.0 disallows these codepoints outright; openpyxl refuses to save a
+# workbook that contains any of them in a string cell. QBO memos occasionally
+# carry stray control chars (pasted from Word, scanner OCR, etc.) and one
+# such cell will fail the whole report's save. Strip them defensively.
+_ILLEGAL_XML_RE = re.compile(
+    r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f'
+    r'\ud800-\udfff\ufdd0-\ufdef\ufffe\uffff]'
+)
+
+
+def _sanitize_workbook(wb) -> None:
+    """Strip XML-illegal control characters from every string cell.
+
+    Call immediately before wb.save(...) so a single bad QBO memo can't
+    blow up the entire report.
+    """
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.value = _ILLEGAL_XML_RE.sub('', cell.value)
+
+
 def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -1272,6 +1295,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                         for ci in range(_DC + 1, ws_sum.max_column + 1):
                             ws_sum.column_dimensions[get_column_letter(ci)].width = 14
 
+                        _sanitize_workbook(wb)
                         wb.save(file_path)
                         progress_fn("  Mapping columns and Map Summary written.")
 
@@ -1337,6 +1361,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
 
                     # Global Arial-10 + buffer-col + freeze pass happens once
                     # at the end of the pipeline, not here.
+                    _sanitize_workbook(wb_p)
                     wb_p.save(file_path)
                     progress_fn("  Portal data tabs added.")
                 except Exception as pe:
@@ -1615,6 +1640,7 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                 # Single global formatting pass: Arial 10 enforcement,
                 # buffer col A, freeze panes, hidden gridlines.
                 apply_global_formatting(wb_fin)
+                _sanitize_workbook(wb_fin)
 
                 wb_fin.save(file_path)
                 progress_fn("  Workbook restructured.")

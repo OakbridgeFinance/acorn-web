@@ -11,6 +11,7 @@ Three pulls:
 import calendar
 import json
 import math
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
@@ -20,6 +21,29 @@ import pandas as pd
 
 from qbo_client import fetch_report, fetch_accounts
 from report_parser import parse_general_ledger, parse_financial_statement
+
+
+# XML 1.0 disallows these codepoints outright; openpyxl refuses to save a
+# workbook that contains any of them in a string cell. QBO memos occasionally
+# carry stray control chars (pasted from Word, scanner OCR, etc.) and one
+# such cell will fail the whole report's save. Strip them defensively.
+_ILLEGAL_XML_RE = re.compile(
+    r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f'
+    r'\ud800-\udfff\ufdd0-\ufdef\ufffe\uffff]'
+)
+
+
+def _sanitize_workbook(wb) -> None:
+    """Strip XML-illegal control characters from every string cell.
+
+    Call immediately before wb.save(...) so a single bad QBO memo can't
+    blow up the entire report.
+    """
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.value = _ILLEGAL_XML_RE.sub('', cell.value)
 
 
 # ── Account type sets ────────────────────────────────────────────────────────
@@ -41,6 +65,7 @@ def retry_save() -> dict:
         raise RuntimeError("No pending save — run the report first.")
     wb        = _pending_save["wb"]
     save_path = _pending_save["path"]
+    _sanitize_workbook(wb)
     try:
         wb.save(save_path)
     except PermissionError:
@@ -2378,6 +2403,7 @@ def generate_lite(
                         strikethrough=_c.font.strikethrough,
                     )
 
+    _sanitize_workbook(wb)
     try:
         wb.save(save_path)
     except PermissionError:
