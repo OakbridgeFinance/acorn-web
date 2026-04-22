@@ -1098,7 +1098,11 @@ function pollJob(jobId) {
                     'Last saved as: <span id="lastSavedName"></span>' +
                   '</div>'
                 : '') +
-              '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>';
+              '<div id="saveSuccessMsg" style="display:none; color:var(--success-text); margin-top:8px; font-size:13px;"></div>' +
+              '<div id="reportConsumedNote" style="display:none; margin-top:10px; padding:10px 12px; background:rgba(41,161,175,0.06); border:1px solid rgba(41,161,175,0.2); border-radius:6px; font-size:12px; color:#5A6B6D; line-height:1.5;">' +
+                'For security reasons, your report has been deleted from our servers after download. ' +
+                'Re-run the report to download it again.' +
+              '</div>';
             banner.appendChild(wrapper);
 
             if (lastFilename) {
@@ -1144,6 +1148,25 @@ function rememberLastFilename(name) {
 
 const _REPORT_GONE_MSG = 'This report has already been downloaded. For data security, all reports are deleted from our servers after download. Please generate the report again to get a new copy.';
 
+function _markReportConsumed() {
+  // Called after a successful download. The server has already deleted the
+  // file, so both save buttons are now one-shot spent — disable and gray them
+  // and surface a persistent note explaining why.
+  const labels = { 'saveAsBtn': 'Save Report As', 'saveSameBtn': 'Save as Same File' };
+  for (const id of Object.keys(labels)) {
+    const b = $(id);
+    if (!b) continue;
+    b.disabled = true;
+    b.onclick = null;
+    b.style.opacity = '0.5';
+    b.style.cursor = 'not-allowed';
+    b.textContent = labels[id];
+    b.title = 'Report already downloaded — re-run to download again';
+  }
+  const note = $('reportConsumedNote');
+  if (note) note.style.display = 'block';
+}
+
 async function saveReportAs(jobId, suggestedName) {
   try {
     const btn = $('saveAsBtn');
@@ -1161,6 +1184,10 @@ async function saveReportAs(jobId, suggestedName) {
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
     console.log('[saveReportAs] blob size:', blob.size, 'type:', blob.type);
+    // Bytes have left the server; the BackgroundTask is about to (or already
+    // has) deleted the file. Lock the download UI regardless of whether the
+    // user completes or cancels the save dialog that follows.
+    _markReportConsumed();
 
     if (window.showSaveFilePicker) {
       const handle = await window.showSaveFilePicker({
@@ -1176,7 +1203,7 @@ async function saveReportAs(jobId, suggestedName) {
       await writable.write(blob);
       await writable.close();
       rememberLastFilename(handle.name || suggestedName);
-      if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
+      // Button stays in the disabled/grayed state set by _markReportConsumed().
       showSaveSuccess('File saved successfully.');
     } else {
       // Fallback for Firefox/Safari — standard browser download
@@ -1189,12 +1216,17 @@ async function saveReportAs(jobId, suggestedName) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       rememberLastFilename(suggestedName);
-      if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
+      // Button stays in the disabled/grayed state set by _markReportConsumed().
     }
   } catch (e) {
     console.error('[saveReportAs] error:', e);
+    // Don't re-enable if we've already consumed the report — the server has
+    // deleted it, so clicking again would just 404. This covers the native
+    // picker AbortError case: user cancels the Save dialog after the bytes
+    // arrived and got us through _markReportConsumed().
+    const consumed = $('reportConsumedNote') && $('reportConsumedNote').style.display !== 'none';
     const btn = $('saveAsBtn');
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Report As'; }
+    if (btn && !consumed) { btn.disabled = false; btn.textContent = 'Save Report As'; }
     if (e.name !== 'AbortError') {
       showSaveError('Save failed: ' + e.message);
     }
@@ -1218,6 +1250,7 @@ async function saveSameFile(jobId, filename) {
     if (!response.ok) throw new Error('Fetch failed: ' + response.status + ' ' + response.statusText);
     const blob = await response.blob();
     console.log('[saveSameFile] blob size:', blob.size);
+    _markReportConsumed();
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1228,11 +1261,12 @@ async function saveSameFile(jobId, filename) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
+    // Button stays in the disabled/grayed state set by _markReportConsumed().
     showSaveSuccess('File saved as ' + filename + '.');
   } catch (e) {
     console.error('[saveSameFile] error:', e);
-    if (btn) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
+    const consumed = $('reportConsumedNote') && $('reportConsumedNote').style.display !== 'none';
+    if (btn && !consumed) { btn.disabled = false; btn.textContent = 'Save as Same File'; }
     showSaveError('Save failed: ' + e.message);
   }
 }
