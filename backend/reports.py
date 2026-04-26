@@ -994,50 +994,8 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                     _write_sec("Other")
 
                                     # Net Income at the bottom
-                                    ni_pl_row = _calc("Net Income", ["_NOI"] + OI, OE,
-                                                      top_b=True, dbl_b=True)
-
-                                    # ── P&L validation: Net Income cross-check ──
-                                    pr += 1
-                                    qbo_ni_r = pr
-                                    wpl.cell(pr, _DC, "Net Income \u2014 QBO P&L").font = Font(
-                                        name="Arial", size=10, italic=True, color="276221")
-                                    if "P&L" in wb.sheetnames:
-                                        ws_pl_src = wb["P&L"]
-                                        pl_src_hdr = [ws_pl_src.cell(_GL_HDR_R, c).value
-                                                      for c in range(1, ws_pl_src.max_column + 1)]
-                                        for pri in range(_GL_DATA_R, ws_pl_src.max_row + 1):
-                                            lbl = str(ws_pl_src.cell(pri, _DC).value or "").strip().lower()
-                                            if lbl in ("net income", "net earnings"):
-                                                for ci, mk in enumerate(month_keys, _DC + 1):
-                                                    ml_s = month_display.get(mk, mk)
-                                                    for pci, ph in enumerate(pl_src_hdr):
-                                                        if str(ph or "").strip() == ml_s:
-                                                            c = wpl.cell(pr, ci,
-                                                                f"='P&L'!{get_column_letter(pci+1)}{pri}")
-                                                            c.number_format = NUM_FMT
-                                                            c.font = LINK_FONT
-                                                            break
-                                                try:
-                                                    ptc = pl_src_hdr.index("Total") + 1
-                                                    c = wpl.cell(pr, tot_col,
-                                                        f"='P&L'!{get_column_letter(ptc)}{pri}")
-                                                    c.number_format = NUM_FMT
-                                                    c.font = LINK_FONT
-                                                except ValueError:
-                                                    pass
-                                                break
-                                    pr += 1
-
-                                    diff_r = pr
-                                    wpl.cell(pr, _DC, "Difference (should be zero)").font = _MAPBD
-                                    for ci in range(_DC + 1, tot_col + 1):
-                                        cl = get_column_letter(ci)
-                                        c = wpl.cell(pr, ci, f"={cl}{ni_pl_row}-{cl}{qbo_ni_r}")
-                                        c.number_format = NUM_FMT
-                                        c.font = Font(name="Arial", size=10)
-                                    _diff_cfmt(wpl, diff_r, tot_col)
-                                    pr += 1
+                                    _calc("Net Income", ["_NOI"] + OI, OE,
+                                          top_b=True, dbl_b=True)
 
                                     wpl.column_dimensions["A"].width = 0.63
                                     _max_b = 0
@@ -1223,52 +1181,6 @@ def run_report_job(job_id: str, user_id: str, realm_id: str,
                                         c.font = Font(name="Arial", size=10)
                                     _diff_cfmt(wbs, d1_r, _last_bs_ci)
                                     br += 2
-
-                                    # QBO Balance Sheet cross-check
-                                    _bs_check_labels = [
-                                        ("Total Assets", brr["TA"]),
-                                        ("Total Liabilities", brr["TL"]),
-                                        ("Total Equity", brr["TE"]),
-                                    ]
-                                    if "Balance Sheet" in wb.sheetnames:
-                                        ws_bs_src = wb["Balance Sheet"]
-                                        bs_src_hdr = [ws_bs_src.cell(_GL_HDR_R, c).value
-                                                      for c in range(1, ws_bs_src.max_column + 1)]
-
-                                        for chk_label, mapped_row in _bs_check_labels:
-                                            bs_match_r = None
-                                            for bri in range(_GL_DATA_R, ws_bs_src.max_row + 1):
-                                                lbl = str(ws_bs_src.cell(bri, _DC).value or "").strip()
-                                                if lbl.lower() == chk_label.lower():
-                                                    bs_match_r = bri
-                                                    break
-
-                                            qbo_r = br
-                                            wbs.cell(br, _DC,
-                                                f"{chk_label} \u2014 QBO Balance Sheet").font = Font(
-                                                    name="Arial", size=10, italic=True, color="276221")
-                                            if bs_match_r:
-                                                for ci, mk in enumerate(bs_month_keys, _DC + 1):
-                                                    ml_s = bs_month_display.get(mk, mk)
-                                                    for pci, ph in enumerate(bs_src_hdr):
-                                                        if str(ph or "").strip() == ml_s:
-                                                            c = wbs.cell(br, ci,
-                                                                f"='Balance Sheet'!{get_column_letter(pci+1)}{bs_match_r}")
-                                                            c.number_format = NUM_FMT
-                                                            c.font = LINK_FONT
-                                                            break
-                                            br += 1
-
-                                            d_r = br
-                                            wbs.cell(br, _DC, "Difference (should be zero)").font = _MAPBD
-                                            for ci in range(_DC + 1, num_bs_mo + _DC + 1):
-                                                cl = get_column_letter(ci)
-                                                c = wbs.cell(br, ci,
-                                                    f"={cl}{mapped_row}-{cl}{qbo_r}")
-                                                c.number_format = NUM_FMT
-                                                c.font = Font(name="Arial", size=10)
-                                            _diff_cfmt(wbs, d_r, _last_bs_ci)
-                                            br += 2
 
                                     wbs.column_dimensions["A"].width = 0.63
                                     _max_b = 0
