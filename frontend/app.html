@@ -199,46 +199,84 @@
           </div>
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
-          <div style="font-size:0.8125rem;font-weight:600;color:var(--text);margin-bottom:8px;">Additional Reports</div>
+          <div style="font-size:0.8125rem;font-weight:600;color:var(--text);margin-bottom:10px;">Report Output</div>
 
-          <div id="glDetailRow" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-            <input type="checkbox" id="includeGLDetail" style="width:14px;height:14px;cursor:pointer;">
-            <label for="includeGLDetail" id="labelGLDetail" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-              Include full GL detail tabs
-            </label>
-            <span id="glDetailProBadge" style="font-size:0.7rem;color:#999;display:none;">(Pro)</span>
-            <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
-              (GL data is summarized by default)
-            </span>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">Summary</span>
+          </div>
+
+          <div class="rpt-section">QBO Reports</div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">P&amp;L</span>
+          </div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">Balance Sheet</span>
+          </div>
+          <div class="rpt-item">
+            <input type="checkbox" id="includeARaging">
+            <label for="includeARaging" id="labelARaging" class="rpt-label">AR Aging</label>
+            <span id="arAgingDate" class="rpt-aside"></span>
+          </div>
+          <div class="rpt-item">
+            <input type="checkbox" id="includeAPaging">
+            <label for="includeAPaging" id="labelAPaging" class="rpt-label">AP Aging</label>
+            <span id="apAgingDate" class="rpt-aside"></span>
+          </div>
+
+          <div class="rpt-section">Mapped Reports</div>
+          <div class="rpt-item rpt-item-mapped" id="mappedPLRow">
+            <input type="checkbox" disabled id="mappedPLCheck">
+            <span class="rpt-label" id="mappedPLLabel">Mapped P&amp;L</span>
+          </div>
+          <div class="rpt-item rpt-item-mapped" id="mappedBSRow">
+            <input type="checkbox" disabled id="mappedBSCheck">
+            <span class="rpt-label" id="mappedBSLabel">Mapped BS</span>
+          </div>
+
+          <div class="rpt-section">Flat Files</div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">IS GL Summary</span>
+          </div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">BS GL Summary</span>
+          </div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">BS Balances</span>
+          </div>
+          <div class="rpt-item" id="isGLDetailRow">
+            <input type="checkbox" id="includeISGLDetail" class="gl-detail-cb">
+            <label for="includeISGLDetail" id="labelISGLDetail" class="rpt-label">IS GL Detail</label>
+            <span class="rpt-pro-badge" id="isGLDetailProBadge" style="display:none;">(Pro)</span>
+          </div>
+          <div class="rpt-item" id="bsGLDetailRow">
+            <input type="checkbox" id="includeBSGLDetail" class="gl-detail-cb">
+            <label for="includeBSGLDetail" id="labelBSGLDetail" class="rpt-label">BS GL Detail</label>
+            <span class="rpt-pro-badge" id="bsGLDetailProBadge" style="display:none;">(Pro)</span>
           </div>
           <div id="glDetailUpgrade" style="display:none;font-size:12px;color:#C97D60;margin-top:6px;">
             Full GL detail is available on Pro. <a class="upgrade-link" href="#" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
 
-          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-            <input type="checkbox" id="includeARaging" style="width:14px;height:14px;cursor:pointer;">
-            <label for="includeARaging" id="labelARaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-              Include AR Aging
-            </label>
-            <span id="arAgingDate" style="font-size:0.7rem;color:var(--text-dim);font-style:italic;"></span>
+          <div class="rpt-section">Data Validation</div>
+          <div class="rpt-item rpt-item-locked">
+            <input type="checkbox" checked disabled>
+            <span class="rpt-label">GL Summary Validation</span>
+          </div>
+          <div class="rpt-item rpt-item-mapped" id="mappedValidationRow">
+            <input type="checkbox" disabled id="mappedValidationCheck">
+            <span class="rpt-label" id="mappedValidationLabel">Map Validation</span>
           </div>
 
-          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-            <input type="checkbox" id="includeAPaging" style="width:14px;height:14px;cursor:pointer;">
-            <label for="includeAPaging" id="labelAPaging" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-              Include AP Aging
-            </label>
-            <span id="apAgingDate" style="font-size:0.7rem;color:var(--text-dim);font-style:italic;"></span>
-          </div>
-
-          <div id="portalDataRow" style="display:none;align-items:center;gap:8px;margin-top:6px;">
-            <input type="checkbox" id="includePortalData" style="width:14px;height:14px;cursor:pointer;">
-            <label for="includePortalData" style="font-size:0.8125rem;color:var(--text-light);cursor:pointer;">
-              Include portal data tabs
-            </label>
-            <span style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">
-              (adds Portal_IS_Flat and Portal_BS_Flat)
-            </span>
+          <div class="rpt-section">Reference</div>
+          <div class="rpt-item rpt-item-mapped" id="mappingReferenceRow">
+            <input type="checkbox" disabled id="mappingReferenceCheck">
+            <span class="rpt-label" id="mappingReferenceLabel">Mapping Reference</span>
           </div>
 
           <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
@@ -756,10 +794,10 @@ function resetExtractionUI() {
 
   // Clear job IDs
   _currentJobId = null;
-  const glDetailCheck = $('includeGLDetail');
-  if (glDetailCheck) glDetailCheck.checked = false;
-  const portalCheck = $('includePortalData');
-  if (portalCheck) portalCheck.checked = false;
+  const isGLDetail = $('includeISGLDetail');
+  if (isGLDetail) isGLDetail.checked = false;
+  const bsGLDetail = $('includeBSGLDetail');
+  if (bsGLDetail) bsGLDetail.checked = false;
 }
 
 function selectClient(realmId, companyName) {
@@ -958,6 +996,7 @@ async function loadMappingSelection(realmId) {
         'No custom mappings configured \u2014 QBO default account structure.</div>' +
         '<div style="margin-top:6px"><a href="#" onclick="showMappingPage()" ' +
         'style="color:var(--accent);font-size:13px">Set up custom Account Mapping →</a></div>';
+      if (typeof updateReportOutputUI === 'function') updateReportOutputUI();
       return;
     }
     body.innerHTML =
@@ -972,6 +1011,7 @@ async function loadMappingSelection(realmId) {
       ).join('') +
       '<div style="margin-top:8px"><a href="#" onclick="showMappingPage()" ' +
       'style="color:var(--accent);font-size:12px">Manage mappings →</a></div>';
+    if (typeof updateReportOutputUI === 'function') updateReportOutputUI();
   } catch (e) {
     body.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Could not load mappings.</div>';
   }
@@ -980,6 +1020,81 @@ async function loadMappingSelection(realmId) {
 function getSelectedMaps() {
   return Array.from(document.querySelectorAll('.map-select-check:checked')).map(cb => cb.value);
 }
+
+// ── Report Output panel ─────────────────────────────────────────────────────
+function updateReportOutputUI() {
+  const maps = getSelectedMaps();
+  const mappingAllowed = hasFeature('mapping');
+  const glDetailAllowed = hasFeature('gl_detail');
+
+  // Mapped item label: first selected map name (with +N more if multiple),
+  // or generic muted text when none selected.
+  let mappedLabelPL  = 'Mapped P&L';
+  let mappedLabelBS  = 'Mapped BS';
+  let mappedLabelVal = 'Map Validation';
+  let mappedLabelRef = 'Mapping Reference';
+  if (maps.length > 0) {
+    const primary = maps[0];
+    const more = maps.length > 1 ? ' (+' + (maps.length - 1) + ' more)' : '';
+    mappedLabelPL  = primary + ' P&L' + more;
+    mappedLabelBS  = primary + ' BS' + more;
+    mappedLabelVal = primary + ' Validation' + more;
+    mappedLabelRef = 'Mapping Reference';
+  }
+
+  const mappedActive = mappingAllowed && maps.length > 0;
+  const mappedRows = [
+    ['mappedPLRow',         'mappedPLCheck',         'mappedPLLabel',         mappedLabelPL],
+    ['mappedBSRow',         'mappedBSCheck',         'mappedBSLabel',         mappedLabelBS],
+    ['mappedValidationRow', 'mappedValidationCheck', 'mappedValidationLabel', mappedLabelVal],
+    ['mappingReferenceRow', 'mappingReferenceCheck', 'mappingReferenceLabel', mappedLabelRef],
+  ];
+  for (const [rowId, cbId, lblId, text] of mappedRows) {
+    const row = $(rowId), cb = $(cbId), lbl = $(lblId);
+    if (!row || !cb || !lbl) continue;
+    lbl.textContent = text;
+    cb.checked = mappedActive;
+    row.classList.toggle('is-disabled', !mappedActive);
+  }
+
+  // GL Detail rows: gate on plan, sync the two checkboxes.
+  const isCb = $('includeISGLDetail');
+  const bsCb = $('includeBSGLDetail');
+  const isProBadge = $('isGLDetailProBadge');
+  const bsProBadge = $('bsGLDetailProBadge');
+  const upgrade = $('glDetailUpgrade');
+  if (isCb && bsCb) {
+    if (!glDetailAllowed) {
+      isCb.disabled = true;  isCb.checked = false;
+      bsCb.disabled = true;  bsCb.checked = false;
+      if (isProBadge) isProBadge.style.display = '';
+      if (bsProBadge) bsProBadge.style.display = '';
+      if (upgrade) upgrade.style.display = 'block';
+    } else {
+      isCb.disabled = false;
+      bsCb.disabled = false;
+      if (isProBadge) isProBadge.style.display = 'none';
+      if (bsProBadge) bsProBadge.style.display = 'none';
+      if (upgrade) upgrade.style.display = 'none';
+    }
+  }
+}
+
+// Sync IS/BS GL Detail checkboxes (backend uses one combined flag).
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.classList && e.target.classList.contains('gl-detail-cb')) {
+    const isCb = $('includeISGLDetail');
+    const bsCb = $('includeBSGLDetail');
+    if (isCb && bsCb && !isCb.disabled && !bsCb.disabled) {
+      const v = e.target.checked;
+      isCb.checked = v;
+      bsCb.checked = v;
+    }
+  }
+  if (e.target && e.target.classList && e.target.classList.contains('map-select-check')) {
+    updateReportOutputUI();
+  }
+});
 
 // ── Generate ────────────────────────────────────────────────────────────────
 async function generate() {
@@ -1016,8 +1131,8 @@ async function generate() {
         end_date:      endDate,
         dimension:         $('liteGlDimension')?.value || 'none',
         selected_maps:     getSelectedMaps(),
-        include_gl_detail:  $('includeGLDetail')?.checked || false,
-        include_portal_data: $('includePortalData')?.checked || false,
+        include_gl_detail:  ($('includeISGLDetail')?.checked || $('includeBSGLDetail')?.checked) || false,
+        include_portal_data: false,
         include_ar_aging:   $('includeARaging')?.checked || false,
         include_ap_aging:   $('includeAPaging')?.checked || false,
       }),
@@ -2101,27 +2216,9 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshTokenIfNeeded();
   loadCompanies();
 
-  // Apply plan-based visibility
-  const portalRow = $('portalDataRow');
-  if (portalRow) portalRow.style.display = hasFeature('portal') ? 'flex' : 'none';
-
-  // GL Detail: show grayed out for basic, enabled for pro+
-  const glDetailRow = $('glDetailRow');
-  const glDetailCb = $('includeGLDetail');
-  const glDetailUpgrade = $('glDetailUpgrade');
-  if (glDetailRow) glDetailRow.style.display = 'flex';
-  const glDetailBadge = $('glDetailProBadge');
-  if (!hasFeature('gl_detail')) {
-    if (glDetailCb) { glDetailCb.disabled = true; glDetailCb.checked = false; }
-    if (glDetailRow) glDetailRow.style.color = '#999';
-    if (glDetailBadge) glDetailBadge.style.display = '';
-    if (glDetailUpgrade) glDetailUpgrade.style.display = 'block';
-  } else {
-    if (glDetailCb) glDetailCb.disabled = false;
-    if (glDetailRow) glDetailRow.style.color = '';
-    if (glDetailBadge) glDetailBadge.style.display = 'none';
-    if (glDetailUpgrade) glDetailUpgrade.style.display = 'none';
-  }
+  // Apply plan-based gating to the Report Output panel (GL Detail rows,
+  // mapped report rows). Initial paint with no map selected.
+  updateReportOutputUI();
 
   // Class/Location: show grayed out for basic, enabled for pro+
   const dimRow = $('liteGlDimRow');

@@ -2011,3 +2011,55 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .modal-btn--cancel  { background: #fff; color: var(--text); border-color: var(--border); }
 .modal-btn--confirm { background: var(--accent); color: #fff; }
 .modal-btn--danger  { background: #CC0000; color: #fff; }
+
+/* ── Report Output list ───────────────────────────────────────────────────── */
+.rpt-section {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  opacity: 0.7;
+  margin: 14px 0 6px;
+}
+.rpt-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.rpt-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.rpt-item .rpt-label {
+  font-size: 0.8125rem;
+  color: var(--text-light);
+  cursor: pointer;
+}
+.rpt-item-locked .rpt-label,
+.rpt-item-mapped.is-disabled .rpt-label {
+  cursor: default;
+}
+.rpt-item-locked input[type="checkbox"],
+.rpt-item-mapped.is-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+.rpt-item-locked,
+.rpt-item-mapped.is-disabled {
+  opacity: 0.55;
+}
+.rpt-item-mapped.is-disabled .rpt-label {
+  font-style: italic;
+}
+.rpt-aside {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.rpt-pro-badge {
+  font-size: 0.7rem;
+  color: #999;
+}
