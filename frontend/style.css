@@ -2047,12 +2047,17 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 .rpt-item-mapped.is-disabled input[type="checkbox"] {
   cursor: not-allowed;
 }
-.rpt-item-locked,
-.rpt-item-mapped.is-disabled {
+.rpt-item-locked {
   opacity: 0.55;
 }
+/* For mapped is-disabled rows we dim only the label + checkbox, leaving
+   the aside (which may contain a clickable upgrade link) at full opacity. */
 .rpt-item-mapped.is-disabled .rpt-label {
+  opacity: 0.55;
   font-style: italic;
+}
+.rpt-item-mapped.is-disabled input[type="checkbox"] {
+  opacity: 0.45;
 }
 .rpt-aside {
   font-size: 0.7rem;

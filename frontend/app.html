@@ -230,10 +230,12 @@
           <div class="rpt-item rpt-item-mapped" id="mappedPLRow">
             <input type="checkbox" disabled id="mappedPLCheck">
             <span class="rpt-label" id="mappedPLLabel">Mapped P&amp;L</span>
+            <span class="rpt-aside" id="mappedPLAside"></span>
           </div>
           <div class="rpt-item rpt-item-mapped" id="mappedBSRow">
             <input type="checkbox" disabled id="mappedBSCheck">
             <span class="rpt-label" id="mappedBSLabel">Mapped BS</span>
+            <span class="rpt-aside" id="mappedBSAside"></span>
           </div>
 
           <div class="rpt-section">Flat Files</div>
@@ -271,12 +273,14 @@
           <div class="rpt-item rpt-item-mapped" id="mappedValidationRow">
             <input type="checkbox" disabled id="mappedValidationCheck">
             <span class="rpt-label" id="mappedValidationLabel">Map Validation</span>
+            <span class="rpt-aside" id="mappedValidationAside"></span>
           </div>
 
           <div class="rpt-section">Reference</div>
           <div class="rpt-item rpt-item-mapped" id="mappingReferenceRow">
             <input type="checkbox" disabled id="mappingReferenceCheck">
             <span class="rpt-label" id="mappingReferenceLabel">Mapping Reference</span>
+            <span class="rpt-aside" id="mappingReferenceAside"></span>
           </div>
 
           <div class="action-bar" style="margin-top:16px;display:flex;align-items:center;gap:10px;">
@@ -1027,34 +1031,47 @@ function updateReportOutputUI() {
   const mappingAllowed = hasFeature('mapping');
   const glDetailAllowed = hasFeature('gl_detail');
 
-  // Mapped item label: first selected map name (with +N more if multiple),
-  // or generic muted text when none selected.
-  let mappedLabelPL  = 'Mapped P&L';
-  let mappedLabelBS  = 'Mapped BS';
-  let mappedLabelVal = 'Map Validation';
-  let mappedLabelRef = 'Mapping Reference';
-  if (maps.length > 0) {
-    const primary = maps[0];
-    const more = maps.length > 1 ? ' (+' + (maps.length - 1) + ' more)' : '';
-    mappedLabelPL  = primary + ' P&L' + more;
-    mappedLabelBS  = primary + ' BS' + more;
-    mappedLabelVal = primary + ' Validation' + more;
-    mappedLabelRef = 'Mapping Reference';
+  // Mapped rows have three states:
+  //   'basic'  → Basic plan: show base label + linked "(Upgrade to Pro)"
+  //   'no-map' → Pro+ but no map selected: show base label + "(Select a map to enable)"
+  //   'active' → Pro+ with at least one map: show "{mapName} ..." checked
+  let mappedState;
+  if (!mappingAllowed) {
+    mappedState = 'basic';
+  } else if (maps.length === 0) {
+    mappedState = 'no-map';
+  } else {
+    mappedState = 'active';
   }
 
-  const mappedActive = mappingAllowed && maps.length > 0;
+  const primary = maps.length ? maps[0] : '';
+  const more    = maps.length > 1 ? ' (+' + (maps.length - 1) + ' more)' : '';
+  const upgradeUrl = _upgradeUrl();
+  const upgradeAside =
+    '(<a href="' + escHtml(upgradeUrl) + '" class="upgrade-link" ' +
+    'style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade to Pro</a>)';
+  const noMapAside = '(Select a map to enable)';
+
   const mappedRows = [
-    ['mappedPLRow',         'mappedPLCheck',         'mappedPLLabel',         mappedLabelPL],
-    ['mappedBSRow',         'mappedBSCheck',         'mappedBSLabel',         mappedLabelBS],
-    ['mappedValidationRow', 'mappedValidationCheck', 'mappedValidationLabel', mappedLabelVal],
-    ['mappingReferenceRow', 'mappingReferenceCheck', 'mappingReferenceLabel', mappedLabelRef],
+    { row:'mappedPLRow',         cb:'mappedPLCheck',         lbl:'mappedPLLabel',         aside:'mappedPLAside',         base:'Mapped P&L',     active: primary + ' P&L'        + more },
+    { row:'mappedBSRow',         cb:'mappedBSCheck',         lbl:'mappedBSLabel',         aside:'mappedBSAside',         base:'Mapped BS',      active: primary + ' BS'         + more },
+    { row:'mappedValidationRow', cb:'mappedValidationCheck', lbl:'mappedValidationLabel', aside:'mappedValidationAside', base:'Map Validation', active: primary + ' Validation' + more },
+    { row:'mappingReferenceRow', cb:'mappingReferenceCheck', lbl:'mappingReferenceLabel', aside:'mappingReferenceAside', base:'Mapping Reference', active: 'Mapping Reference' },
   ];
-  for (const [rowId, cbId, lblId, text] of mappedRows) {
-    const row = $(rowId), cb = $(cbId), lbl = $(lblId);
+  for (const r of mappedRows) {
+    const row = $(r.row), cb = $(r.cb), lbl = $(r.lbl), aside = $(r.aside);
     if (!row || !cb || !lbl) continue;
-    lbl.textContent = text;
-    cb.checked = mappedActive;
-    row.classList.toggle('is-disabled', !mappedActive);
+    if (mappedState === 'active') {
+      lbl.textContent = r.active;
+      cb.checked = true;
+      row.classList.remove('is-disabled');
+      if (aside) aside.innerHTML = '';
+    } else {
+      lbl.textContent = r.base;
+      cb.checked = false;
+      row.classList.add('is-disabled');
+      if (aside) aside.innerHTML = (mappedState === 'basic') ? upgradeAside : noMapAside;
+    }
   }
 
   // GL Detail rows: gate on plan, sync the two checkboxes.
