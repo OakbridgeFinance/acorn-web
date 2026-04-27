@@ -201,18 +201,18 @@
           <div style="border-top:1px solid var(--border);margin:14px 0 10px;"></div>
           <div style="font-size:0.8125rem;font-weight:600;color:var(--text);margin-bottom:10px;">Report Output</div>
 
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">Summary</span>
           </div>
 
           <div class="rpt-section">QBO Reports</div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">P&amp;L</span>
           </div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">Balance Sheet</span>
           </div>
           <div class="rpt-item">
@@ -229,26 +229,28 @@
           <div class="rpt-section">Mapped Reports</div>
           <div class="rpt-item rpt-item-mapped" id="mappedPLRow">
             <input type="checkbox" disabled id="mappedPLCheck">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label" id="mappedPLLabel">Mapped P&amp;L</span>
             <span class="rpt-aside" id="mappedPLAside"></span>
           </div>
           <div class="rpt-item rpt-item-mapped" id="mappedBSRow">
             <input type="checkbox" disabled id="mappedBSCheck">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label" id="mappedBSLabel">Mapped BS</span>
             <span class="rpt-aside" id="mappedBSAside"></span>
           </div>
 
           <div class="rpt-section">Flat Files</div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">IS GL Summary</span>
           </div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">BS GL Summary</span>
           </div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">BS Balances</span>
           </div>
           <div class="rpt-item" id="isGLDetailRow">
@@ -266,12 +268,13 @@
           </div>
 
           <div class="rpt-section">Data Validation</div>
-          <div class="rpt-item rpt-item-locked">
-            <input type="checkbox" checked disabled>
+          <div class="rpt-item rpt-item-included">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label">GL Summary Validation</span>
           </div>
           <div class="rpt-item rpt-item-mapped" id="mappedValidationRow">
             <input type="checkbox" disabled id="mappedValidationCheck">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label" id="mappedValidationLabel">Map Validation</span>
             <span class="rpt-aside" id="mappedValidationAside"></span>
           </div>
@@ -279,6 +282,7 @@
           <div class="rpt-section">Reference</div>
           <div class="rpt-item rpt-item-mapped" id="mappingReferenceRow">
             <input type="checkbox" disabled id="mappingReferenceCheck">
+            <span class="rpt-check" aria-hidden="true">&#10003;</span>
             <span class="rpt-label" id="mappingReferenceLabel">Mapping Reference</span>
             <span class="rpt-aside" id="mappingReferenceAside"></span>
           </div>
@@ -1065,10 +1069,12 @@ function updateReportOutputUI() {
       lbl.textContent = r.active;
       cb.checked = true;
       row.classList.remove('is-disabled');
+      row.classList.add('is-active');
       if (aside) aside.innerHTML = '';
     } else {
       lbl.textContent = r.base;
       cb.checked = false;
+      row.classList.remove('is-active');
       row.classList.add('is-disabled');
       if (aside) aside.innerHTML = (mappedState === 'basic') ? upgradeAside : noMapAside;
     }

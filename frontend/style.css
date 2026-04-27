@@ -2036,27 +2036,54 @@ details[open] .tab-details-summary::before { content: '▼ '; }
 }
 .rpt-item .rpt-label {
   font-size: 0.8125rem;
-  color: var(--text-light);
+  color: var(--text);
   cursor: pointer;
 }
-.rpt-item-locked .rpt-label,
+
+/* Always-included rows: teal check + light teal tint, no checkbox */
+.rpt-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: #337E8D;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.rpt-item-included,
+.rpt-item-mapped.is-active {
+  background: rgba(51, 126, 141, 0.08);
+  border-radius: 3px;
+  padding: 3px 6px;
+  margin-left: -6px;
+  margin-right: -6px;
+}
+.rpt-item-included .rpt-label,
+.rpt-item-mapped.is-active .rpt-label {
+  color: var(--text);
+  cursor: default;
+  font-style: normal;
+  opacity: 1;
+}
+
+/* Mapped rows toggle between an interactive disabled checkbox and a teal
+   check; only one of the two is visible at a time. */
+.rpt-item-mapped .rpt-check { display: none; }
+.rpt-item-mapped.is-active .rpt-check { display: inline-flex; }
+.rpt-item-mapped.is-active input[type="checkbox"] { display: none; }
+
+/* Disabled mapped rows: dim only the label + checkbox so the aside
+   (which may contain a clickable upgrade link) stays at full opacity. */
 .rpt-item-mapped.is-disabled .rpt-label {
   cursor: default;
-}
-.rpt-item-locked input[type="checkbox"],
-.rpt-item-mapped.is-disabled input[type="checkbox"] {
-  cursor: not-allowed;
-}
-.rpt-item-locked {
-  opacity: 0.55;
-}
-/* For mapped is-disabled rows we dim only the label + checkbox, leaving
-   the aside (which may contain a clickable upgrade link) at full opacity. */
-.rpt-item-mapped.is-disabled .rpt-label {
   opacity: 0.55;
   font-style: italic;
 }
 .rpt-item-mapped.is-disabled input[type="checkbox"] {
+  cursor: not-allowed;
   opacity: 0.45;
 }
 .rpt-aside {
