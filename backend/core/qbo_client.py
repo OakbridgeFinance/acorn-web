@@ -111,11 +111,22 @@ def fetch_report(
     return data
 
 
-def fetch_accounts(*, access_token: str, realm_id: str) -> list[dict]:
+def fetch_accounts(
+    *,
+    access_token: str,
+    realm_id: str,
+    include_inactive: bool = False,
+) -> list[dict]:
     """
-    Fetch all accounts from the Chart of Accounts via the QBO query API.
+    Fetch accounts from the Chart of Accounts via the QBO query API.
     Returns a list of account dicts with Id, Name, AccountType,
     AccountSubType, and AcctNum.
+
+    By default QBO returns only Active=true accounts. Pass
+    include_inactive=True to return both active and inactive accounts —
+    needed when enriching historical GL data, since transactions on
+    accounts that have since been deactivated still appear on the QBO
+    P&L and Balance Sheet reports and must resolve to a known type.
     """
     if not access_token or not realm_id:
         raise ValueError("fetch_accounts requires access_token and realm_id")
@@ -129,12 +140,14 @@ def fetch_accounts(*, access_token: str, realm_id: str) -> list[dict]:
     all_accounts: list[dict] = []
     start_position = 1
     page_size = 1000
+    where_clause = "WHERE Active IN (true, false) " if include_inactive else ""
 
     while True:
         params = {
             "query": (
                 f"SELECT Id, Name, AccountType, AccountSubType, AcctNum, Active "
-                f"FROM Account STARTPOSITION {start_position} MAXRESULTS {page_size}"
+                f"FROM Account {where_clause}"
+                f"STARTPOSITION {start_position} MAXRESULTS {page_size}"
             ),
             "minorversion": MINOR_VERSION,
         }

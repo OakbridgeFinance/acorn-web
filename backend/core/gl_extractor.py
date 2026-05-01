@@ -188,7 +188,10 @@ def _build_coa_lookup(access_token: str, realm_id: str, progress_fn: Callable = 
     import re
     lookup = {}
     try:
-        accts = fetch_accounts(access_token=access_token, realm_id=realm_id)
+        accts = fetch_accounts(
+            access_token=access_token, realm_id=realm_id,
+            include_inactive=True,
+        )
         type_counts: dict[str, int] = {}
         for a in (accts or []):
             acct_num = a.get("AcctNum", "").strip()
