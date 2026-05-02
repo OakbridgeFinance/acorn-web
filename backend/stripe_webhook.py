@@ -73,7 +73,9 @@ def _customer_email(customer_id: str) -> str:
         return ""
     try:
         customer = stripe.Customer.retrieve(customer_id)
-        return customer.get("email", "") or ""
+        if isinstance(customer, dict):
+            return customer.get("email", "") or ""
+        return customer.email or ""
     except Exception as e:
         logger.warning(f"Stripe webhook: customer lookup failed for {customer_id}: {e}")
         return ""
@@ -85,6 +87,7 @@ async def stripe_webhook(request: Request):
     sig_header = request.headers.get("stripe-signature")
 
     if not WEBHOOK_SECRET:
+        logger.error("STRIPE_WEBHOOK_SECRET not set")
         raise HTTPException(status_code=500, detail="Stripe webhook secret not configured")
 
     try:
@@ -96,36 +99,54 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     try:
-        event_type = event.get("type", "")
+        event_type = event["type"] if isinstance(event, dict) else getattr(event, "type", "")
+        data_object = event["data"]["object"] if isinstance(event, dict) else event.data.object
 
         if event_type == "checkout.session.completed":
-            session = event["data"]["object"]
-            customer_email = (session.get("customer_details") or {}).get("email", "")
+            customer_email = ""
+            try:
+                if isinstance(data_object, dict):
+                    customer_email = (data_object.get("customer_details") or {}).get("email", "")
+                else:
+                    customer_email = data_object.customer_details.email or ""
+            except Exception:
+                pass
 
-            if session.get("mode") == "subscription":
+            mode = data_object["mode"] if isinstance(data_object, dict) else getattr(data_object, "mode", "")
+            session_id = data_object["id"] if isinstance(data_object, dict) else data_object.id
+
+            if mode == "subscription":
                 try:
-                    line_items = stripe.checkout.Session.list_line_items(session["id"])
+                    line_items = stripe.checkout.Session.list_line_items(session_id)
+                    items_data = line_items["data"] if isinstance(line_items, dict) else line_items.data
                 except Exception as e:
                     logger.warning(f"Stripe webhook: list_line_items failed: {e}")
-                    line_items = {"data": []}
+                    items_data = []
 
-                for item in line_items.get("data", []):
-                    price_id = (item.get("price") or {}).get("id", "")
-                    plan     = PRICE_TO_PLAN.get(price_id)
+                for item in items_data:
+                    try:
+                        if isinstance(item, dict):
+                            price_id = (item.get("price") or {}).get("id", "")
+                        else:
+                            price_id = item.price.id
+                    except Exception:
+                        price_id = ""
+                    plan = PRICE_TO_PLAN.get(price_id)
                     if plan and customer_email:
                         _update_user_plan(customer_email, plan)
 
         elif event_type == "customer.subscription.deleted":
-            subscription = event["data"]["object"]
-            email = _customer_email(subscription.get("customer", ""))
+            customer_id = data_object["customer"] if isinstance(data_object, dict) else getattr(data_object, "customer", "")
+            email = _customer_email(customer_id)
             if email:
                 _update_user_plan(email, "basic")
 
         elif event_type == "invoice.payment_failed":
-            invoice = event["data"]["object"]
-            email = _customer_email(invoice.get("customer", ""))
+            customer_id = data_object["customer"] if isinstance(data_object, dict) else getattr(data_object, "customer", "")
+            email = _customer_email(customer_id)
             if email:
                 _update_user_plan(email, "basic")
+
     except Exception as e:
         logger.error(f"Stripe webhook handler error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
