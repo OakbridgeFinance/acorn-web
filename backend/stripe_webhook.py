@@ -12,9 +12,9 @@ import os
 
 import stripe
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from backend.auth import get_supabase_admin
+from backend.auth import get_current_user, get_supabase_admin
 
 load_dotenv()
 
@@ -154,3 +154,28 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"status": "ok"}
+
+
+@router.post("/api/stripe/portal")
+async def create_portal_session(user=Depends(get_current_user)):
+    """Create a Stripe Customer Portal session for the current user."""
+    email = user.email
+
+    try:
+        customers = stripe.Customer.list(email=email, limit=1)
+        if not customers.data:
+            raise HTTPException(status_code=404, detail="No subscription found")
+
+        customer_id = customers.data[0].id
+
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url="https://acorn.oakbridgefinance.com/app.html",
+        )
+
+        return {"url": session.url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Portal session error: {e}")
+        raise HTTPException(status_code=500, detail="Could not create portal session")

@@ -443,6 +443,23 @@ function signOut() {
   window.location.href = 'login.html';
 }
 
+async function managePlan() {
+  try {
+    const resp = await fetch(API + '/api/stripe/portal', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.url) {
+      window.open(data.url, '_blank');
+    } else {
+      showToast(data.detail || 'Could not open billing portal.', 'error');
+    }
+  } catch (e) {
+    showToast('Could not open billing portal: ' + e.message, 'error');
+  }
+}
+
 // ── DOM helpers ─────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const val = id => { const e = $(id); return e ? e.value : ''; };
@@ -2264,11 +2281,29 @@ document.addEventListener('DOMContentLoaded', () => {
   if (planLabel) planLabel.textContent = _planLabel();
   const upgradeLink = $('sidebarUpgradeLink');
   const _uUrlInit = _upgradeUrl();
+  const _isTrial = localStorage.getItem('acorn_trial') === 'true';
   if (upgradeLink) {
-    upgradeLink.href = _uUrlInit;
-    upgradeLink.style.display = _uUrlInit ? '' : 'none';
+    upgradeLink.onclick = null;
+    if (userPlan === 'admin') {
+      upgradeLink.style.display = 'none';
+    } else if (userPlan === 'basic' || _isTrial) {
+      upgradeLink.textContent = 'Upgrade →';
+      upgradeLink.href = _uUrlInit || '#';
+      upgradeLink.style.display = _uUrlInit ? '' : 'none';
+    } else if (userPlan === 'pro' || userPlan === 'plus') {
+      upgradeLink.textContent = 'Manage Plan';
+      upgradeLink.href = '#';
+      upgradeLink.onclick = function(e) { e.preventDefault(); managePlan(); };
+      upgradeLink.style.display = '';
+    } else {
+      upgradeLink.style.display = 'none';
+    }
   }
-  document.querySelectorAll('.upgrade-link').forEach(a => { a.href = _uUrlInit; });
+  // Other in-page upgrade-link CTAs (not the sidebar) always point at the
+  // payment page when one applies.
+  document.querySelectorAll('.upgrade-link').forEach(a => {
+    if (a.id !== 'sidebarUpgradeLink') a.href = _uUrlInit;
+  });
   const trialDaysEl = $('sidebarCompanyCount');
   if (trialDaysEl && localStorage.getItem('acorn_trial') === 'true') {
     const d = parseInt(localStorage.getItem('acorn_trial_days') || '0', 10);
