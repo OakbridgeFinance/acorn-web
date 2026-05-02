@@ -91,38 +91,43 @@ async def stripe_webhook(request: Request):
         event = stripe.Webhook.construct_event(payload, sig_header, WEBHOOK_SECRET)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
+    except Exception as e:
+        logger.error(f"Stripe signature verification failed: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    event_type = event.get("type", "")
+    try:
+        event_type = event.get("type", "")
 
-    if event_type == "checkout.session.completed":
-        session = event["data"]["object"]
-        customer_email = (session.get("customer_details") or {}).get("email", "")
+        if event_type == "checkout.session.completed":
+            session = event["data"]["object"]
+            customer_email = (session.get("customer_details") or {}).get("email", "")
 
-        if session.get("mode") == "subscription":
-            try:
-                line_items = stripe.checkout.Session.list_line_items(session["id"])
-            except Exception as e:
-                logger.warning(f"Stripe webhook: list_line_items failed: {e}")
-                line_items = {"data": []}
+            if session.get("mode") == "subscription":
+                try:
+                    line_items = stripe.checkout.Session.list_line_items(session["id"])
+                except Exception as e:
+                    logger.warning(f"Stripe webhook: list_line_items failed: {e}")
+                    line_items = {"data": []}
 
-            for item in line_items.get("data", []):
-                price_id = (item.get("price") or {}).get("id", "")
-                plan     = PRICE_TO_PLAN.get(price_id)
-                if plan and customer_email:
-                    _update_user_plan(customer_email, plan)
+                for item in line_items.get("data", []):
+                    price_id = (item.get("price") or {}).get("id", "")
+                    plan     = PRICE_TO_PLAN.get(price_id)
+                    if plan and customer_email:
+                        _update_user_plan(customer_email, plan)
 
-    elif event_type == "customer.subscription.deleted":
-        subscription = event["data"]["object"]
-        email = _customer_email(subscription.get("customer", ""))
-        if email:
-            _update_user_plan(email, "basic")
+        elif event_type == "customer.subscription.deleted":
+            subscription = event["data"]["object"]
+            email = _customer_email(subscription.get("customer", ""))
+            if email:
+                _update_user_plan(email, "basic")
 
-    elif event_type == "invoice.payment_failed":
-        invoice = event["data"]["object"]
-        email = _customer_email(invoice.get("customer", ""))
-        if email:
-            _update_user_plan(email, "basic")
+        elif event_type == "invoice.payment_failed":
+            invoice = event["data"]["object"]
+            email = _customer_email(invoice.get("customer", ""))
+            if email:
+                _update_user_plan(email, "basic")
+    except Exception as e:
+        logger.error(f"Stripe webhook handler error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
     return {"status": "ok"}
