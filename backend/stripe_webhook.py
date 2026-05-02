@@ -58,6 +58,8 @@ def _update_user_plan(email: str, plan: str) -> None:
     try:
         existing = dict(getattr(target_user, "app_metadata", None) or {})
         existing["plan"] = plan
+        if plan in ("pro", "plus"):
+            existing.pop("trial_expires", None)
         supabase.auth.admin.update_user_by_id(
             str(target_user.id),
             {"app_metadata": existing},
