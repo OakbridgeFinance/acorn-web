@@ -358,7 +358,9 @@
             <input type="text" class="input" id="mapsEditorName" placeholder="e.g. Portal" style="width:180px" />
           </div>
           <div class="maps-editor-validation" id="mapsValidation"></div>
-          <button class="btn-primary btn-sm" id="mapsSaveBtn" onclick="mapsSaveEditor()">Save Map</button>
+          <span id="mapsEditorStatusPill" class="maps-list-badge" style="display:none;margin-left:0;"></span>
+          <button class="btn-outline btn-sm" id="mapsSaveDraftBtn" onclick="mapsSaveDraft()">Save as draft</button>
+          <button class="btn-primary btn-sm" id="mapsFinalizeBtn" onclick="mapsFinalize()" title="">Finalize map</button>
           <div id="mapsSaveConfirm" style="display:none;color:#10B981;font-weight:600;font-size:13px;padding:4px 8px"></div>
         </div>
 
@@ -1008,17 +1010,21 @@ function onPeriodChange() {
 }
 
 // ── Mapping selection ────────────────────────────────────────────────────────
+function _mapStatus(m) {
+  return (m && m.status) ? m.status : 'finalized';
+}
+
 async function loadMappingSelection(realmId) {
   const body = $('mappingSelectionBody');
   if (!body || !realmId) return;
   try {
     const res = await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), { headers: authHeaders() });
     const data = await res.json();
-    const maps = data.account_maps || [];
+    const maps = (data.account_maps || []).filter(m => _mapStatus(m) === 'finalized');
     if (!maps.length) {
       body.innerHTML =
         '<div style="font-size:13px;color:var(--text-light);line-height:1.6">' +
-        'No custom mappings configured \u2014 QBO default account structure.</div>' +
+        'No finalized mappings \u2014 QBO default account structure.</div>' +
         '<div style="margin-top:6px"><a href="#" onclick="showMappingPage()" ' +
         'style="color:var(--accent);font-size:13px">Set up custom Account Mapping →</a></div>';
       if (typeof updateReportOutputUI === 'function') updateReportOutputUI();
@@ -1027,13 +1033,24 @@ async function loadMappingSelection(realmId) {
     body.innerHTML =
       '<div style="font-size:12px;color:var(--text-light);margin-bottom:8px">' +
       'Select maps to append as columns in the output. Leave all unchecked for QBO default structure.</div>' +
-      maps.map((m, i) =>
-        '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;font-size:13px">' +
-        '<input type="checkbox" class="map-select-check" value="' + escHtml(m.map_name || '') + '" ' +
-        'style="width:14px;height:14px;accent-color:var(--accent)">' +
-        escHtml(m.map_name || 'Unnamed') +
-        '</label>'
-      ).join('') +
+      maps.map((m, i) => {
+        const name = escHtml(m.map_name || 'Unnamed');
+        const rawName = escHtml(m.map_name || '');
+        return (
+          '<div class="map-select-row" data-map-name="' + rawName + '" ' +
+            'style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;flex-wrap:wrap">' +
+            '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0">' +
+              '<input type="checkbox" class="map-select-check" value="' + rawName + '" ' +
+                'style="width:14px;height:14px;accent-color:var(--accent)">' +
+              name +
+            '</label>' +
+            '<button class="btn-outline btn-xs map-validate-btn" type="button" ' +
+              'onclick="mapsValidateFromSelection(this)" ' +
+              'style="font-size:11px;padding:2px 8px">Validate completeness</button>' +
+            '<div class="map-validate-result" style="flex:1 0 100%;display:none;margin-top:4px"></div>' +
+          '</div>'
+        );
+      }).join('') +
       '<div style="margin-top:8px"><a href="#" onclick="showMappingPage()" ' +
       'style="color:var(--accent);font-size:12px">Manage mappings →</a></div>';
     if (typeof updateReportOutputUI === 'function') updateReportOutputUI();
@@ -1044,6 +1061,87 @@ async function loadMappingSelection(realmId) {
 
 function getSelectedMaps() {
   return Array.from(document.querySelectorAll('.map-select-check:checked')).map(cb => cb.value);
+}
+
+async function _fetchMapValidation(realmId, mapName) {
+  const url = API + '/api/mapping/' + encodeURIComponent(realmId)
+    + '/validate/' + encodeURIComponent(mapName);
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    let msg = 'Validation failed';
+    try { const data = await res.json(); msg = data.detail || data.error || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return await res.json();
+}
+
+function _renderValidationPanel(report, opts) {
+  const {
+    onEditMap = null,
+    headerOverride = null,
+  } = opts || {};
+  const total = report.total_qbo_accounts;
+  const stale = (report.stale_assignments || []);
+  const editLink = onEditMap
+    ? `<button class="btn-outline btn-xs" type="button" onclick="${onEditMap}" style="font-size:11px;padding:2px 8px;margin-top:8px">Edit map</button>`
+    : '';
+  const staleNote = stale.length
+    ? `<div style="margin-top:8px;font-size:11px;color:#6B7280;">Note: ${stale.length} mapped account${stale.length === 1 ? '' : 's'} no longer exist in QBO. This usually doesn't affect reports but you may want to clean ${stale.length === 1 ? 'it' : 'them'} up.</div>`
+    : '';
+
+  if (report.is_complete) {
+    return `<div style="padding:8px 10px;border-radius:6px;background:#ECFDF5;border:1px solid #A7F3D0;font-size:12px;color:#065F46;">
+      ${headerOverride || `✓ Map covers all ${total} QBO accounts`}
+    </div>${staleNote ? `<div style="padding:6px 10px">${staleNote}</div>` : ''}`;
+  }
+
+  const items = (report.unmapped_accounts || []).map(a => {
+    const label = escHtml(a.display || '');
+    const type = escHtml(a.type || '');
+    return `<li style="margin:2px 0;">${label}${type ? ` <span style="color:#6B7280">(${type})</span>` : ''}</li>`;
+  }).join('');
+  const count = (report.unmapped_accounts || []).length;
+
+  return `<div style="padding:10px 12px;border-radius:6px;background:#FEF3C7;border:1px solid #FCD34D;font-size:12px;color:#78350F;">
+    <div style="font-weight:600;margin-bottom:6px;">This map needs updating — ${count} account${count === 1 ? '' : 's'} in QBO ${count === 1 ? "isn't" : "aren't"} mapped</div>
+    <ul style="margin:4px 0 0 0;padding-left:18px;max-height:160px;overflow-y:auto;">${items}</ul>
+    ${editLink}
+    ${staleNote}
+  </div>`;
+}
+
+async function mapsValidateFromSelection(btn) {
+  const row = btn.closest('.map-select-row');
+  if (!row) return;
+  const mapName = row.getAttribute('data-map-name') || '';
+  const realmId = _getRealmId();
+  if (!realmId) return;
+  const resultEl = row.querySelector('.map-validate-result');
+  if (!resultEl) return;
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Validating…';
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div style="font-size:12px;color:var(--text-light);padding:6px 10px">Checking against current QBO accounts…</div>';
+  try {
+    const report = await _fetchMapValidation(realmId, mapName);
+    resultEl.innerHTML = _renderValidationPanel(report, {
+      onEditMap: `mapsEditByName(${JSON.stringify(mapName)})`,
+    });
+  } catch (e) {
+    resultEl.innerHTML = `<div style="padding:8px 10px;border-radius:6px;background:#FEE2E2;border:1px solid #FCA5A5;font-size:12px;color:#991B1B;">${escHtml(e.message || 'Validation failed')}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function mapsEditByName(name) {
+  showMappingPage();
+  setTimeout(() => {
+    const idx = (mapsState.maps || []).findIndex(m => (m.map_name || '') === name);
+    if (idx >= 0) mapsEdit(idx);
+  }, 50);
 }
 
 // ── Report Output panel ─────────────────────────────────────────────────────
@@ -1136,6 +1234,84 @@ document.addEventListener('change', function(e) {
   }
 });
 
+// ── Generate: completeness pre-check ────────────────────────────────────────
+function _showIncompleteMapsModal(reports) {
+  return new Promise(resolve => {
+    const root = document.createElement('div');
+    root.className = 'modal-backdrop visible';
+    root.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999;';
+
+    const sections = reports.map(r => {
+      const items = (r.unmapped_accounts || []).slice(0, 25).map(a => {
+        const label = escHtml(a.display || '');
+        const type = escHtml(a.type || '');
+        return `<li style="margin:2px 0;">${label}${type ? ` <span style="color:#6B7280">(${type})</span>` : ''}</li>`;
+      }).join('');
+      const more = (r.unmapped_accounts || []).length > 25
+        ? `<li style="font-style:italic;">…and ${r.unmapped_accounts.length - 25} more</li>` : '';
+      const count = (r.unmapped_accounts || []).length;
+      return `<div style="margin-top:10px">
+        <div style="font-weight:600;color:#78350F;margin-bottom:4px;">${escHtml(r.map_name)} — ${count} unmapped</div>
+        <ul style="margin:0;padding-left:18px;max-height:140px;overflow-y:auto;font-size:12px;color:#78350F;">${items}${more}</ul>
+      </div>`;
+    }).join('');
+
+    root.innerHTML = `
+      <div class="modal-card" style="background:#fff;border-radius:8px;padding:18px 20px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;">
+        <div class="modal-title" style="font-size:16px;font-weight:700;margin-bottom:10px;">Some selected maps are incomplete</div>
+        <div style="font-size:13px;color:#374151;margin-bottom:8px;">
+          New QBO accounts have appeared since these maps were finalized. Generating now will leave those rows uncategorised in the mapped column.
+        </div>
+        <div style="padding:10px 12px;border-radius:6px;background:#FEF3C7;border:1px solid #FCD34D;">
+          ${sections}
+        </div>
+        <div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="modal-btn modal-btn--cancel" data-action="update">Update map first</button>
+          <button class="modal-btn modal-btn--confirm" data-action="generate">Generate anyway</button>
+        </div>
+      </div>`;
+
+    const cleanup = (result) => {
+      document.removeEventListener('keydown', onKey);
+      root.remove();
+      resolve(result);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(null); };
+    root.addEventListener('click', (e) => {
+      if (e.target === root) { cleanup(null); return; }
+      const btn = e.target.closest('button[data-action]');
+      if (btn) cleanup(btn.getAttribute('data-action'));
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(root);
+  });
+}
+
+async function _checkSelectedMapsCompleteness() {
+  const selected = getSelectedMaps();
+  if (!selected.length) return true;
+  const realmId = state.realmId;
+  if (!realmId) return true;
+
+  let reports;
+  try {
+    reports = await Promise.all(selected.map(name => _fetchMapValidation(realmId, name)));
+  } catch (e) {
+    // Fall back to letting the user proceed if we can't validate.
+    console.warn('Map validation failed; proceeding without soft-block:', e);
+    return true;
+  }
+  const incomplete = reports.filter(r => !r.is_complete);
+  if (!incomplete.length) return true;
+
+  const action = await _showIncompleteMapsModal(incomplete);
+  if (action === 'generate') return true;
+  if (action === 'update') {
+    mapsEditByName(incomplete[0].map_name);
+  }
+  return false;
+}
+
 // ── Generate ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!state.realmId) return;
@@ -1156,6 +1332,9 @@ async function generate() {
     showToast('Start date must be before end date.', 'warning');
     return;
   }
+
+  const proceed = await _checkSelectedMapsCompleteness();
+  if (!proceed) return;
 
   clearLog();
   hideStatus();
@@ -1597,10 +1776,16 @@ function mapsRenderList() {
     const groupCount = (m.groups || []).length;
     const acctCount = (m.groups || []).reduce((s, g) => s + (g.accounts || []).length, 0);
     const name = escHtml(m.map_name || 'Unnamed');
+    const status = _mapStatus(m);
+    const pillStyle = status === 'draft'
+      ? 'background:#FEF3C7;color:#92400E;'
+      : 'background:#07393C;color:#FFFFFF;';
+    const pillLabel = status === 'draft' ? 'Draft' : 'Finalized';
+    const pill = `<span class="maps-list-badge" style="${pillStyle}margin-left:0;">${pillLabel}</span>`;
     return `
       <div class="maps-list-card">
         <div class="maps-list-info" style="cursor:pointer" onclick="mapsEdit(${idx})">
-          <div class="maps-list-name">${name}</div>
+          <div class="maps-list-name" style="display:flex;align-items:center;gap:8px;">${name}${pill}</div>
           <div class="maps-list-meta">${groupCount} groups \u00b7 ${acctCount} accounts</div>
         </div>
         <div class="maps-list-actions">
@@ -1962,6 +2147,36 @@ function mapsRenderSummary() {
     else badges += `<span class="maps-list-badge maps-list-badge--ok">BS: OK</span>`;
     vEl.innerHTML = badges;
   }
+
+  // Drive status pill + finalize-button enablement off the same counts.
+  const totalUnmapped = isUnmapped.length + bsUnmapped.length;
+  const finalizeBtn = $('mapsFinalizeBtn');
+  if (finalizeBtn) {
+    finalizeBtn.disabled = totalUnmapped > 0;
+    finalizeBtn.title = totalUnmapped > 0
+      ? `Cannot finalize — ${totalUnmapped} accounts unmapped`
+      : '';
+  }
+  const pill = $('mapsEditorStatusPill');
+  if (pill) {
+    const editing = mapsState.editing;
+    const isExisting = !!(editing && editing._idx != null);
+    let status = (editing && editing.status) || null;
+    if (!status && isExisting) status = 'finalized';
+    if (status === 'draft') {
+      pill.style.display = '';
+      pill.style.background = '#FEF3C7';
+      pill.style.color = '#92400E';
+      pill.textContent = 'Draft';
+    } else if (status === 'finalized') {
+      pill.style.display = '';
+      pill.style.background = '#07393C';
+      pill.style.color = '#FFFFFF';
+      pill.textContent = 'Finalized';
+    } else {
+      pill.style.display = 'none';
+    }
+  }
 }
 
 function mapsAccountClick(e, displayName) {
@@ -2115,12 +2330,11 @@ function _buildMapObj() {
   };
 }
 
-async function mapsSaveEditor() {
+async function _mapsValidateEditorBeforeSave() {
   const mapName = (val('mapsEditorName') || '').trim();
-  if (!mapName) { showToast('Map name is required.', 'warning'); return; }
+  if (!mapName) { showToast('Map name is required.', 'warning'); return null; }
   const mapObj = _buildMapObj();
 
-  // Validate all groups have name AND section
   const invalidGroups = [];
   mapObj.groups.forEach((g, i) => {
     const hasName    = (g.group_name || '').trim().length > 0;
@@ -2149,29 +2363,33 @@ async function mapsSaveEditor() {
       return 'Group ' + (ig.idx + 1) + ' "' + (ig.grp.group_name || 'unnamed') + '": ' + issues.join(', ');
     });
     showToast('Cannot save — ' + messages.join('; '), 'error');
-    return;
+    return null;
   }
 
-  // Clear highlights if all valid
   document.querySelectorAll('#mapsGroupList .maps-group').forEach(card => {
     card.style.border = '';
     card.style.background = '';
   });
+  return mapObj;
+}
 
-  const isExisting = mapsState.editing?._idx != null;
-  if (!isExisting || !mapsState.originalMap) {
-    await _doSaveMap(mapObj, false);
-    return;
-  }
-  const original = mapsState.originalMap;
-  const changed = JSON.stringify({ map_name: mapObj.map_name, groups: mapObj.groups })
-               !== JSON.stringify({ map_name: original.map_name, groups: original.groups });
-  if (!changed) { mapsCloseEditor(); return; }
-  const save = await confirmDialog(
-    'Save changes to \'' + mapObj.map_name + '\'?',
-    { title: 'Save map', okLabel: 'Save' },
+async function mapsSaveDraft() {
+  const mapObj = await _mapsValidateEditorBeforeSave();
+  if (!mapObj) return;
+  mapObj.status = 'draft';
+  await _doSaveMap(mapObj, false);
+}
+
+async function mapsFinalize() {
+  const mapObj = await _mapsValidateEditorBeforeSave();
+  if (!mapObj) return;
+  const ok = await confirmDialog(
+    'Finalize this map? Once finalized, it can be selected for report generation.',
+    { title: 'Finalize map', okLabel: 'Finalize' },
   );
-  if (save) await _doSaveMap(mapObj, false);
+  if (!ok) return;
+  mapObj.status = 'finalized';
+  await _doSaveMap(mapObj, false);
 }
 
 async function _doSaveMap(mapObj, asNew) {
@@ -2184,16 +2402,31 @@ async function _doSaveMap(mapObj, asNew) {
   }
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
+    const res = await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ account_maps: allMaps }),
     });
+    if (!res.ok) {
+      let msg = 'Save failed';
+      try { const data = await res.json(); msg = data.detail || data.error || msg; } catch (_) {}
+      showToast(msg, 'error');
+      return;
+    }
     mapsState.maps = allMaps;
+    if (mapsState.editing) {
+      mapsState.editing.status = mapObj.status;
+      // Track the freshly-saved index so subsequent saves update in place
+      // instead of pushing duplicates.
+      if (mapsState.editing._idx == null) {
+        mapsState.editing._idx = allMaps.length - 1;
+      }
+      mapsRenderSummary();
+    }
     // Show inline save confirmation — don't navigate away
     const confirmEl = document.getElementById('mapsSaveConfirm');
     if (confirmEl) {
-      confirmEl.textContent = '\u2713 Map saved';
+      confirmEl.textContent = mapObj.status === 'finalized' ? '\u2713 Map finalized' : '\u2713 Draft saved';
       confirmEl.style.display = 'block';
       setTimeout(() => { confirmEl.style.display = 'none'; }, 3000);
     }
@@ -2207,14 +2440,24 @@ async function _doSaveMap(mapObj, asNew) {
 async function mapsDuplicate(idx) {
   const copy = JSON.parse(JSON.stringify(mapsState.maps[idx]));
   copy.map_name = (copy.map_name || 'Unnamed') + ' (Copy)';
-  mapsState.maps.push(copy);
+  // Duplicates land as drafts so the user can edit and re-finalize without
+  // tripping the server-side completeness check on save.
+  copy.status = 'draft';
+  const allMaps = [...mapsState.maps, copy];
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
+    const res = await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ account_maps: mapsState.maps }),
+      body: JSON.stringify({ account_maps: allMaps }),
     });
+    if (!res.ok) {
+      let msg = 'Duplicate failed';
+      try { const data = await res.json(); msg = data.detail || data.error || msg; } catch (_) {}
+      showToast(msg, 'error');
+      return;
+    }
+    mapsState.maps = allMaps;
     mapsRenderList();
   } catch (e) {
     showToast('Duplicate failed: ' + e.message, 'error');
@@ -2233,11 +2476,17 @@ async function mapsDelete(idx) {
   allMaps.splice(idx, 1);
   const realmId = _getRealmId();
   try {
-    await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
+    const res = await fetch(API + '/api/mapping/' + encodeURIComponent(realmId), {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ account_maps: allMaps }),
     });
+    if (!res.ok) {
+      let msg = 'Delete failed';
+      try { const data = await res.json(); msg = data.detail || data.error || msg; } catch (_) {}
+      showToast(msg, 'error');
+      return;
+    }
     mapsState.maps = allMaps;
     mapsRenderList();
   } catch (e) {
