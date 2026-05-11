@@ -263,6 +263,11 @@
             <label for="includeBSGLDetail" id="labelBSGLDetail" class="rpt-label">BS GL Detail</label>
             <span class="rpt-pro-badge" id="bsGLDetailProBadge" style="display:none;">(Pro)</span>
           </div>
+          <div class="rpt-item" id="portalFlatRow" style="display:none;">
+            <input type="checkbox" id="includePortalFlat">
+            <label for="includePortalFlat" class="rpt-label">Portal Flat Files</label>
+            <span class="rpt-aside">(Admin)</span>
+          </div>
           <div id="glDetailUpgrade" style="display:none;font-size:12px;color:#C97D60;margin-top:6px;">
             Full GL detail is available on Pro. <a class="upgrade-link" href="#" style="color:#C97D60;font-weight:600;text-decoration:underline;">Upgrade →</a>
           </div>
@@ -1216,6 +1221,18 @@ function updateReportOutputUI() {
       if (upgrade) upgrade.style.display = 'none';
     }
   }
+
+  // Portal flat tabs: admin-only.
+  const portalRow = $('portalFlatRow');
+  if (portalRow) {
+    if (hasFeature('portal')) {
+      portalRow.style.display = '';
+    } else {
+      portalRow.style.display = 'none';
+      const portalCb = $('includePortalFlat');
+      if (portalCb) portalCb.checked = false;
+    }
+  }
 }
 
 // Sync IS/BS GL Detail checkboxes (backend uses one combined flag).
@@ -1351,7 +1368,7 @@ async function generate() {
         dimension:         $('liteGlDimension')?.value || 'none',
         selected_maps:     getSelectedMaps(),
         include_gl_detail:  ($('includeISGLDetail')?.checked || $('includeBSGLDetail')?.checked) || false,
-        include_portal_data: false,
+        include_portal_data: $('includePortalFlat')?.checked || false,
         include_ar_aging:   $('includeARaging')?.checked || false,
         include_ap_aging:   $('includeAPaging')?.checked || false,
       }),
