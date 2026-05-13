@@ -96,11 +96,6 @@ def get_mapped_accounts(map_obj: dict) -> set[str]:
     return mapped
 
 
-def _map_status(map_obj: dict) -> str:
-    """Backward-compat: maps without a status field read as 'finalized'."""
-    return (map_obj.get("status") or "finalized")
-
-
 # ── QBO COA fetch ────────────────────────────────────────────────────────────
 
 async def _fetch_qbo_accounts(
@@ -178,37 +173,22 @@ class MappingBody(BaseModel):
 
 
 @router.post("/{realm_id}")
-async def save_mapping(realm_id: str, body: MappingBody, user=Depends(get_current_user)):
-    """Save account mapping config. Maps with status='finalized' must cover
-    every QBO account (active or inactive). Drafts save freely."""
+def save_mapping(realm_id: str, body: MappingBody, user=Depends(get_current_user)):
+    """Save account mapping config for a company."""
     _require_mapping_plan(user)
 
-    finalized_maps = [m for m in body.account_maps
-                      if isinstance(m, dict) and m.get("status") == "finalized"]
-    if finalized_maps:
-        tokens = get_tokens(str(user.id), realm_id)
-        accounts = await _fetch_qbo_accounts(
-            tokens["access_token"], realm_id, include_inactive=True,
-        )
-        expected = {_account_display_string(a) for a in accounts if _account_display_string(a)}
-        for m in finalized_maps:
-            mapped   = get_mapped_accounts(m)
-            unmapped = expected - mapped
-            if unmapped:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f'Map "{m.get("map_name", "Unnamed")}" cannot be finalized — '
-                        f'{len(unmapped)} accounts are unmapped. Save as draft instead, '
-                        f'or map the missing accounts.'
-                    ),
-                )
+    # Strip any legacy status keys left over from the draft/finalize era.
+    cleaned_maps = []
+    for m in body.account_maps:
+        if isinstance(m, dict) and "status" in m:
+            m = {k: v for k, v in m.items() if k != "status"}
+        cleaned_maps.append(m)
 
     supabase = get_supabase()
     supabase.table("mappings").upsert({
         "user_id":      str(user.id),
         "realm_id":     realm_id,
-        "account_maps": body.account_maps,
+        "account_maps": cleaned_maps,
         "updated_at":   datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,realm_id").execute()
     return {"saved": True}
@@ -260,7 +240,6 @@ async def validate_map(realm_id: str, map_name: str, user=Depends(get_current_us
 
     return {
         "map_name":              decoded_name,
-        "status":                _map_status(map_obj),
         "is_complete":           not unmapped_accounts,
         "unmapped_accounts":     unmapped_accounts,
         "stale_assignments":     stale_keys,
