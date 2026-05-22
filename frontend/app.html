@@ -1945,16 +1945,35 @@ function getGLAccountName(displayName) {
   return lastPart || displayName;
 }
 
+// Canonical "is mapped" set. An account is mapped iff its match_key
+// ({AcctNum} {LeafName} — see backend mapping._account_display_string) appears
+// in any group's accounts array within the live mapObj being edited. The
+// Unassigned group counts like any other group for this purpose; downstream
+// report logic may treat Unassigned differently, but the editor does not.
+//
+// We normalize every stored entry through getGLAccountName so that legacy
+// maps saved in the older "{AcctNum} {FullyQualifiedName}" format still match
+// canonical match_keys after a one-time pass through the editor.
 function _mapsAssignedSet() {
   const s = new Set();
   for (const g of mapsState.groups) {
-    if (g._fixed) continue;
     for (const a of (g.accounts || [])) {
-      const dn = typeof a === 'string' ? a : (a.display_name || a.name || '');
-      s.add(dn);
+      const raw = typeof a === 'string' ? a : (a.display_name || a.name || '');
+      if (!raw) continue;
+      s.add(raw);
+      const gl = getGLAccountName(raw);
+      if (gl) s.add(gl);
     }
   }
   return s;
+}
+
+// Canonical key for a QBO account row, matching the backend's match_key.
+function _mapsAcctKey(a) {
+  if (a && a.match_key) return a.match_key;
+  const num = ((a && a.acct_num) || '').trim();
+  const name = (a && a.name) || '';
+  return num ? `${num} ${name}` : name;
 }
 
 function mapsRenderAll() {
@@ -1995,15 +2014,9 @@ function mapsRenderAccounts() {
   }
   const filterMode = val('mapsAccountFilter') || 'all';
   if (filterMode === 'unmapped') {
-    accts = accts.filter(a => {
-      const dn = (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : a.name;
-      return !assigned.has(dn);
-    });
+    accts = accts.filter(a => !assigned.has(_mapsAcctKey(a)));
   } else if (filterMode === 'mapped') {
-    accts = accts.filter(a => {
-      const dn = (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : a.name;
-      return assigned.has(dn);
-    });
+    accts = accts.filter(a => assigned.has(_mapsAcctKey(a)));
   }
   const hasIndents = mapsState.indentLevels != null;
   accts.forEach((a, i) => {
@@ -2016,8 +2029,7 @@ function mapsRenderAccounts() {
     const name = a.name || '';
     const num = (a.acct_num || '').trim();
     const displayName = num ? `${num} ${name}` : name;
-    const glName = getGLAccountName(displayName);
-    const isAssigned = assigned.has(displayName) || assigned.has(glName) || assigned.has(name);
+    const isAssigned = assigned.has(_mapsAcctKey(a));
     const isSelected = _mapsSelectedAccounts.has(displayName);
     const isInactive = a.active === false;
     const cls = 'maps-account-item'
@@ -2049,7 +2061,9 @@ function mapsRenderAccounts() {
   if (fc) {
     const total = mapsState.allAccounts.length;
     const shown = accts.length;
-    const mapped = assigned.size;
+    const mapped = mapsState.allAccounts.reduce(
+      (n, x) => n + (assigned.has(_mapsAcctKey(x)) ? 1 : 0), 0,
+    );
     fc.textContent = `${shown} shown \u00b7 ${mapped} mapped of ${total}`;
     const fill = $('mapsProgressFill');
     if (fill) {
@@ -2113,15 +2127,10 @@ function mapsRenderSummary() {
   if (!el) return;
   const assigned = _mapsAssignedSet();
   const allAccts = mapsState.filteredAccounts || mapsState.allAccounts;
-  const unassignedGroup = mapsState.groups.find(g => g._fixed);
-  const unassignedAccts = new Set((unassignedGroup?.accounts || []).map(a => typeof a === 'string' ? a : (a.display_name || a.name || '')));
   const isAccts = allAccts.filter(a => _IS_ACCOUNT_TYPES.has(a.type || ''));
   const bsAccts = allAccts.filter(a => _BS_ACCOUNT_TYPES.has(a.type || ''));
-  const _dn = a => (a.acct_num || '').trim() ? `${a.acct_num.trim()} ${a.name}` : (a.name || '');
-  const isDisplayNames = new Set(isAccts.map(_dn));
-  const bsDisplayNames = new Set(bsAccts.map(_dn));
-  const isUnmapped = [...isDisplayNames].filter(n => !assigned.has(n));
-  const bsUnmapped = [...bsDisplayNames].filter(n => !assigned.has(n));
+  const isUnmapped = isAccts.filter(a => !assigned.has(_mapsAcctKey(a))).map(_mapsAcctKey);
+  const bsUnmapped = bsAccts.filter(a => !assigned.has(_mapsAcctKey(a))).map(_mapsAcctKey);
   const curStmt = mapsState.statement;
   const unmapped = curStmt === 'BS' ? bsUnmapped : isUnmapped;
   const stmtLabel = curStmt === 'BS' ? 'BS' : 'IS';
@@ -2163,7 +2172,8 @@ function mapsRenderSummary() {
 
 function mapsAccountClick(e, displayName) {
   const assigned = _mapsAssignedSet();
-  if (assigned.has(displayName)) return;
+  const _isAssignedDn = dn => assigned.has(dn) || assigned.has(getGLAccountName(dn));
+  if (_isAssignedDn(displayName)) return;
 
   const allVisible = Array.from(
     document.querySelectorAll('#mapsAccountList .maps-account-item:not(.assigned)')
@@ -2180,7 +2190,7 @@ function mapsAccountClick(e, displayName) {
       if (i >= start && i <= end) {
         const dnEl = el.querySelector('.maps-acct-name');
         const dn = dnEl ? dnEl.textContent.trim() : '';
-        if (dn && !assigned.has(dn)) _mapsSelectedAccounts.add(dn);
+        if (dn && !_isAssignedDn(dn)) _mapsSelectedAccounts.add(dn);
       }
     });
     _mapsLastClickedIdx = currentPos;
