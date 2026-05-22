@@ -76,6 +76,7 @@ def _format_account_for_response(account: dict) -> dict:
         "acct_num":   acct_num,
         "type":       account.get("AccountType", ""),
         "subtype":    account.get("AccountSubType", ""),
+        "active":     bool(account.get("Active", True)),
         "parent_ref": account.get("ParentRef", {}).get("value", "") if account.get("ParentRef") else "",
     }
 

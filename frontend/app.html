@@ -1765,7 +1765,7 @@ async function mapsLoadList() {
     console.log('[mapsLoadList] fetching mappings + COA...');
     const [mapsResp, acctResp] = await Promise.all([
       fetch(API + '/api/mapping/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json()),
-      fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json()),
+      fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId) + '?include_inactive=true', { headers: authHeaders() }).then(r => r.json()),
     ]);
     mapsState.maps = Array.isArray(mapsResp.account_maps) ? mapsResp.account_maps : [];
     mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
@@ -1857,7 +1857,7 @@ async function mapsOpenEditor() {
         if (rr.ok) _mapsQboRefreshedRealm = realmId;
       } catch (e) { console.warn('[mapsOpenEditor] QBO refresh error:', e); }
       try {
-        const acctResp = await fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId), { headers: authHeaders() }).then(r => r.json());
+        const acctResp = await fetch(API + '/api/mapping/coa/' + encodeURIComponent(realmId) + '?include_inactive=true', { headers: authHeaders() }).then(r => r.json());
         mapsState.allAccounts = Array.isArray(acctResp.accounts) ? acctResp.accounts : [];
         console.log('[mapsOpenEditor] loaded', mapsState.allAccounts.length, 'accounts on retry');
       } catch (e) { console.error('[mapsOpenEditor] COA fetch error:', e); }
@@ -2019,7 +2019,11 @@ function mapsRenderAccounts() {
     const glName = getGLAccountName(displayName);
     const isAssigned = assigned.has(displayName) || assigned.has(glName) || assigned.has(name);
     const isSelected = _mapsSelectedAccounts.has(displayName);
-    const cls = 'maps-account-item' + (isAssigned ? ' assigned' : '') + (isSelected ? ' selected' : '');
+    const isInactive = a.active === false;
+    const cls = 'maps-account-item'
+      + (isAssigned ? ' assigned' : '')
+      + (isSelected ? ' selected' : '')
+      + (isInactive ? ' inactive' : '');
     const draggable = isAssigned ? '' : 'draggable="true"';
     const bsKey = '__bs__' + name;
     const indent = hasIndents
@@ -2029,13 +2033,16 @@ function mapsRenderAccounts() {
       : 0;
     const indentPx = indent * 16;
     const isParent = !!a._isParent;
+    const nameColor = isInactive ? 'var(--text-dim)' : (isParent ? 'var(--text)' : 'var(--text-light)');
+    const nameStyle = `font-weight:${isParent ? '600' : '400'};color:${nameColor};${isInactive ? 'font-style:italic;' : ''}`;
+    const typeStyle = isInactive ? 'font-style:italic;' : '';
     return `<div class="${cls}" ${draggable}
                  onclick="mapsAccountClick(event, '${escHtml(displayName)}')"
                  ondragstart="mapsDragStartMulti(event, '${escHtml(name)}', '${escHtml(displayName)}')"
                  data-acct="${escHtml(name)}" data-idx="${idx}"
                  style="padding-left:${indentPx + 8}px;${isParent ? 'background:var(--bg);' : ''}">
-      <span class="maps-acct-type">${escHtml(a.type || '')}</span>
-      <span class="maps-acct-name" style="font-weight:${isParent ? '600' : '400'};color:${isParent ? 'var(--text)' : 'var(--text-light)'};">${escHtml(displayName)}</span>
+      <span class="maps-acct-type" style="${typeStyle}">${escHtml(a.type || '')}</span>
+      <span class="maps-acct-name" style="${nameStyle}">${escHtml(displayName)}</span>
     </div>`;
   }).join('');
   const fc = $('mapsFilterCount');
