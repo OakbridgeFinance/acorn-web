@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Any
 from supabase import create_client
-from backend.auth import get_current_user
+from backend.auth import get_current_user, plan_from_meta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,7 +14,7 @@ load_dotenv()
 
 def _require_mapping_plan(user):
     """Raise 403 if user's plan doesn't include mapping."""
-    plan = (user.app_metadata or {}).get("plan", "basic")
+    plan = plan_from_meta(user.app_metadata)
     if plan not in ("pro", "plus", "admin"):
         raise HTTPException(status_code=403, detail="Mapping requires a Pro or Plus plan")
 

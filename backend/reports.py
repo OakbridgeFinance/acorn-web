@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from supabase import create_client
 
-from backend.auth import get_current_user
+from backend.auth import get_current_user, plan_from_meta
 from backend.jobs import create_job, update_job, get_job, get_user_jobs
 from backend.excel_formatter import apply_global_formatting
 from backend.portal_prep import build_portal_flat_tabs
@@ -1599,7 +1599,7 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
     s, e = _parse_report_dates(body.start_date, body.end_date)
 
-    plan   = (user.app_metadata or {}).get("plan", "basic")
+    plan   = plan_from_meta(user.app_metadata)
     uid    = str(user.id)
     sb     = get_supabase()
 

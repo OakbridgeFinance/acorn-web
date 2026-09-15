@@ -565,12 +565,14 @@ async function refreshTokenIfNeeded() {
       const data = await res.json();
       localStorage.setItem('acorn_access_token', data.access_token);
       localStorage.setItem('acorn_refresh_token', data.refresh_token);
-      if (data.plan) {
-        localStorage.setItem('acorn_plan', data.plan);
-        localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
-        localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
-        userPlan = data.plan;
-      }
+      // Always overwrite plan from the current JWT. The backend derives it
+      // fresh from app_metadata on every refresh, so this replaces any stale
+      // value (e.g. a "basic" cached from a previous session) rather than
+      // leaving it in place when a plan field is present.
+      userPlan = data.plan || 'basic';
+      localStorage.setItem('acorn_plan', userPlan);
+      localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
+      localStorage.setItem('acorn_trial_days', String(data.trial_days_remaining || 0));
       _lastRefreshSuccess = Date.now();
       return true;
     } catch (e) {

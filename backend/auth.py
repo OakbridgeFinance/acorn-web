@@ -52,9 +52,35 @@ class ResetPasswordRequest(BaseModel):
 
 # ── Trial / plan helpers ─────────────────────────────────────────────────────
 
+# Plans the app recognizes, in ascending order of privilege. Anything else
+# (unknown string, missing key) resolves to "basic".
+_KNOWN_PLANS = ("pro", "plus", "admin")
+
+
+def plan_from_meta(app_meta: dict) -> str:
+    """Canonical plan name from server-controlled app_metadata.
+
+    Priority order:
+      1. app_metadata.admin is True         -> "admin"
+      2. app_metadata.plan in _KNOWN_PLANS  -> that plan
+      3. otherwise                           -> "basic"
+
+    app_metadata is writable only by the service role, so it is safe to trust.
+    This is the single source of truth for a user's plan; call it fresh on
+    every request (login, refresh, feature gates) rather than caching, so plan
+    or admin changes take effect immediately without the client clearing state.
+    """
+    app_meta = app_meta or {}
+    if app_meta.get("admin") is True:
+        return "admin"
+    plan = app_meta.get("plan", "basic")
+    return plan if plan in _KNOWN_PLANS else "basic"
+
+
 def _effective_plan(app_meta: dict) -> tuple[str, bool, int]:
     """Return (plan, is_trial, days_remaining) with trial expiry enforced."""
-    plan = app_meta.get("plan", "basic")
+    app_meta = app_meta or {}
+    plan = plan_from_meta(app_meta)
     trial_expires = app_meta.get("trial_expires")
 
     if plan in ("pro", "plus") and trial_expires:
