@@ -57,31 +57,44 @@ class ResetPasswordRequest(BaseModel):
 _KNOWN_PLANS = ("pro", "plus", "admin")
 
 
-def plan_from_meta(app_meta: dict) -> str:
-    """Canonical plan name from server-controlled app_metadata.
+def plan_from_meta(app_meta: dict, user_meta: dict | None = None) -> str:
+    """Canonical plan name from a user's metadata.
 
     Priority order:
-      1. app_metadata.admin is True         -> "admin"
-      2. app_metadata.plan in _KNOWN_PLANS  -> that plan
-      3. otherwise                           -> "basic"
+      1. app_metadata.admin is True OR user_metadata.admin is True -> "admin"
+      2. app_metadata.plan in _KNOWN_PLANS                          -> that plan
+      3. user_metadata.plan in _KNOWN_PLANS                         -> that plan
+      4. otherwise                                                   -> "basic"
 
-    app_metadata is writable only by the service role, so it is safe to trust.
+    app_metadata is service-role-only (safe to trust), so it wins over
+    user_metadata. But this Supabase instance doesn't reliably propagate
+    post-create SQL updates to raw_app_meta_data into the JWT, while it does
+    propagate raw_user_meta_data — so we fall back to user_metadata to pick up
+    plans that only landed there.
+
     This is the single source of truth for a user's plan; call it fresh on
     every request (login, refresh, feature gates) rather than caching, so plan
     or admin changes take effect immediately without the client clearing state.
     """
     app_meta = app_meta or {}
-    if app_meta.get("admin") is True:
+    user_meta = user_meta or {}
+    if app_meta.get("admin") is True or user_meta.get("admin") is True:
         return "admin"
     plan = app_meta.get("plan", "basic")
+    if plan in _KNOWN_PLANS:
+        return plan
+    plan = user_meta.get("plan", "basic")
     return plan if plan in _KNOWN_PLANS else "basic"
 
 
-def _effective_plan(app_meta: dict) -> tuple[str, bool, int]:
+def _effective_plan(app_meta: dict, user_meta: dict | None = None) -> tuple[str, bool, int]:
     """Return (plan, is_trial, days_remaining) with trial expiry enforced."""
     app_meta = app_meta or {}
-    plan = plan_from_meta(app_meta)
-    trial_expires = app_meta.get("trial_expires")
+    user_meta = user_meta or {}
+    plan = plan_from_meta(app_meta, user_meta)
+    # trial_expires normally lives in app_metadata, but fall back to
+    # user_metadata for the same JWT-propagation reason as the plan lookup.
+    trial_expires = app_meta.get("trial_expires") or user_meta.get("trial_expires")
 
     if plan in ("pro", "plus") and trial_expires:
         try:
@@ -168,7 +181,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         user = result.user
         # Attach effective plan (with trial expiry check) to the user object
         app_meta = user.app_metadata or {}
-        plan, is_trial, days = _effective_plan(app_meta)
+        user_meta = user.user_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta, user_meta)
         if not hasattr(user, '_acorn_plan'):
             user._acorn_plan = plan
             user._acorn_trial = is_trial
@@ -272,7 +286,8 @@ def login(body: AuthRequest, request: Request):
             "password": body.password,
         })
         app_meta = result.user.app_metadata or {}
-        plan, is_trial, days = _effective_plan(app_meta)
+        user_meta = result.user.user_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta, user_meta)
         return {
             "access_token":  result.session.access_token,
             "refresh_token": result.session.refresh_token,
@@ -293,7 +308,8 @@ def refresh_token(body: RefreshRequest):
     try:
         result = supabase.auth.refresh_session(body.refresh_token)
         app_meta = result.user.app_metadata or {}
-        plan, is_trial, days = _effective_plan(app_meta)
+        user_meta = result.user.user_metadata or {}
+        plan, is_trial, days = _effective_plan(app_meta, user_meta)
         return {
             "access_token":  result.session.access_token,
             "refresh_token": result.session.refresh_token,

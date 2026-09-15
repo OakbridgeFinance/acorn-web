@@ -1599,7 +1599,7 @@ def generate_report(body: GenerateRequest, user=Depends(get_current_user)):
     """Kick off a report generation job."""
     s, e = _parse_report_dates(body.start_date, body.end_date)
 
-    plan   = plan_from_meta(user.app_metadata)
+    plan   = plan_from_meta(user.app_metadata, user.user_metadata)
     uid    = str(user.id)
     sb     = get_supabase()
 
