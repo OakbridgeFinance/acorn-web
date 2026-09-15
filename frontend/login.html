@@ -247,7 +247,9 @@ async function doForgot() {
     const data = await res.json();
     if (data.access_token)  localStorage.setItem('acorn_access_token',  data.access_token);
     if (data.refresh_token) localStorage.setItem('acorn_refresh_token', data.refresh_token);
-    if (data.plan)          localStorage.setItem('acorn_plan',          data.plan);
+    // Always overwrite plan from the current JWT so a stale value can't
+    // survive across sessions; the backend recomputes it from app_metadata.
+    localStorage.setItem('acorn_plan', data.plan || 'basic');
     if (typeof data.trial !== 'undefined') {
       localStorage.setItem('acorn_trial', data.trial ? 'true' : 'false');
     }

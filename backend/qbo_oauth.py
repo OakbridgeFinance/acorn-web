@@ -6,7 +6,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
-from backend.auth import get_current_user
+from backend.auth import get_current_user, plan_from_meta
 from supabase import create_client
 from dotenv import load_dotenv
 
@@ -50,7 +50,7 @@ _COMPANY_LIMITS = {"basic": 1, "pro": 5, "plus": 25}
 
 def _check_company_limit(user, supabase):
     """Raise 403 if adding another company would exceed the plan limit."""
-    plan = (user.app_metadata or {}).get("plan", "basic")
+    plan = plan_from_meta(user.app_metadata, user.user_metadata)
     if plan == "admin":
         return
     limit = _COMPANY_LIMITS.get(plan, 1)
@@ -125,7 +125,7 @@ async def qbo_callback(code: str, realmId: str, state: str = ""):
     # Check company limit (look up plan from auth.users via service role)
     try:
         _user_resp = supabase.auth.admin.get_user_by_id(user_id)
-        _plan = (_user_resp.user.app_metadata or {}).get("plan", "basic") if _user_resp.user else "basic"
+        _plan = plan_from_meta(_user_resp.user.app_metadata, _user_resp.user.user_metadata) if _user_resp.user else "basic"
     except Exception:
         _plan = "basic"
     if _plan != "admin":
